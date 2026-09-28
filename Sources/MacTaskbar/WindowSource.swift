@@ -138,31 +138,36 @@ final class WindowSource: @unchecked Sendable {
             for element in elements {
                 let role: String? = copyAttribute(element, kAXRoleAttribute)
                 let subrole: String? = copyAttribute(element, kAXSubroleAttribute)
-                let canMinimize = copyAttribute(element, kAXMinimizeButtonAttribute).flatMap { (button: AXUIElement) in
-                    copyAttribute(button, kAXEnabledAttribute) as Bool?
-                } ?? false
+                let canMinimize =
+                    copyAttribute(element, kAXMinimizeButtonAttribute).flatMap { (button: AXUIElement) in
+                        copyAttribute(button, kAXEnabledAttribute) as Bool?
+                    } ?? false
                 kinds.append("\(role ?? "nil")/\(subrole ?? "nil")\(canMinimize ? "+min" : "")")
                 guard let pos = copyPoint(element, kAXPositionAttribute),
-                      let size = copySize(element, kAXSizeAttribute) else { continue }
+                    let size = copySize(element, kAXSizeAttribute)
+                else { continue }
                 let isMinimized: Bool = copyAttribute(element, kAXMinimizedAttribute) ?? false
-                guard Self.isTaskWindow(
-                    role: role, subrole: subrole, size: size, isMinimized: isMinimized, canMinimize: canMinimize)
+                guard
+                    Self.isTaskWindow(
+                        role: role, subrole: subrole, size: size, isMinimized: isMinimized, canMinimize: canMinimize)
                 else { continue }
                 accepted += 1
 
                 // AX uses top-left origin with y pointing down; convert to Cocoa coordinates.
-                let frame = CGRect(x: pos.x, y: primaryHeight - pos.y - size.height,
-                                   width: size.width, height: size.height)
+                let frame = CGRect(
+                    x: pos.x, y: primaryHeight - pos.y - size.height,
+                    width: size.width, height: size.height)
                 let key = WindowKey(element: element)
-                result.append(TaskWindow(
-                    key: key,
-                    app: app,
-                    title: copyAttribute(element, kAXTitleAttribute) ?? "",
-                    frame: frame,
-                    isMinimized: isMinimized,
-                    isFocused: focused.map { CFEqual($0, element) } ?? false,
-                    isAppHidden: entry.isHidden
-                ))
+                result.append(
+                    TaskWindow(
+                        key: key,
+                        app: app,
+                        title: copyAttribute(element, kAXTitleAttribute) ?? "",
+                        frame: frame,
+                        isMinimized: isMinimized,
+                        isFocused: focused.map { CFEqual($0, element) } ?? false,
+                        isAppHidden: entry.isHidden
+                    ))
             }
             report[pid] = "\(name): \(elements.count) windows, \(accepted) shown, role/subrole \(kinds)"
         }
@@ -189,17 +194,19 @@ final class WindowSource: @unchecked Sendable {
         let request = focusRequest
         let previous = NSWorkspace.shared.frontmostApplication
         if w.app.isHidden { w.app.unhide() }
-        perform({
+        let checkActivation: @MainActor () -> Void = {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.activationCheckDelay) {
                 MainActor.assumeIsolated {
                     // Fall back only if the AX activation had no effect: no newer request, and the
                     // app that was frontmost before is still frontmost (otherwise the user moved on).
-                    let ignored = !w.app.isActive && request == self.focusRequest
+                    let ignored =
+                        !w.app.isActive && request == self.focusRequest
                         && NSWorkspace.shared.frontmostApplication == previous
                     if ignored { self.activate(w, completion: completion) } else { completion() }
                 }
             }
-        }) {
+        }
+        perform(checkActivation) {
             if w.isMinimized {
                 AXUIElementSetAttributeValue(w.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             }
@@ -307,7 +314,8 @@ func describe(_ error: AXError) -> String {
 private func copyAXValue(_ element: AXUIElement, _ name: String) -> AXValue? {
     var raw: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, name as CFString, &raw) == .success,
-          let raw, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        let raw, CFGetTypeID(raw) == AXValueGetTypeID()
+    else { return nil }
     return (raw as! AXValue)
 }
 

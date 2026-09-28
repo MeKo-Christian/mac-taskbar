@@ -29,8 +29,9 @@ enum MacTaskbarApp {
         report.forEach { print("  \($0)") }
         print("\nShown windows (\(windows.count)):")
         for w in windows {
-            print("  [\(w.appName)] \(w.displayTitle) id=\(w.windowID.map { "\($0)" } ?? "nil") frame=\(w.frame) "
-                + "minimized=\(w.isMinimized) focused=\(w.isFocused)")
+            print(
+                "  [\(w.appName)] \(w.displayTitle) id=\(w.windowID.map { "\($0)" } ?? "nil") frame=\(w.frame) "
+                    + "minimized=\(w.isMinimized) focused=\(w.isFocused)")
         }
 
         // Cross-check the private window IDs against the window server (needs no Screen Recording).
@@ -38,7 +39,10 @@ enum MacTaskbarApp {
         var owners: [CGWindowID: pid_t] = [:]
         for entry in info {
             if let id = entry[kCGWindowNumber as String] as? CGWindowID,
-               let pid = entry[kCGWindowOwnerPID as String] as? pid_t { owners[id] = pid }
+                let pid = entry[kCGWindowOwnerPID as String] as? pid_t
+            {
+                owners[id] = pid
+            }
         }
         let matching = windows.filter { w in w.windowID.flatMap { owners[$0] } == w.app.processIdentifier }
         print("\nWindow IDs matching CGWindowList (id + owner pid): \(matching.count)/\(windows.count)")
