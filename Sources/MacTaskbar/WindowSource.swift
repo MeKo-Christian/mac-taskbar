@@ -18,14 +18,24 @@ struct WindowKey: Hashable {
         windowID = _AXUIElementGetWindow(element, &id) == .success && id != 0 ? id : nil
     }
 
-    /// Elements of the same window are `CFEqual`, so hashing the element stays consistent with
-    /// comparing by window ID.
+    /// Equality and hashing share one discriminator: the window ID when present, else the AX
+    /// element. A key with an ID never equals one without, so a window whose ID lookup failed
+    /// once is treated as a new window rather than breaking the `Hashable` contract.
     static func == (a: WindowKey, b: WindowKey) -> Bool {
-        if let x = a.windowID, let y = b.windowID { return x == y }
-        return CFEqual(a.element, b.element)
+        switch (a.windowID, b.windowID) {
+        case let (x?, y?): x == y
+        case (nil, nil): CFEqual(a.element, b.element)
+        default: false
+        }
     }
 
-    func hash(into hasher: inout Hasher) { hasher.combine(CFHash(element)) }
+    func hash(into hasher: inout Hasher) {
+        if let windowID {
+            hasher.combine(windowID)
+        } else {
+            hasher.combine(CFHash(element))
+        }
+    }
 
     /// Short, stable description for change detection and logs.
     var id: String { windowID.map { "\($0)" } ?? "ax\(CFHash(element))" }
