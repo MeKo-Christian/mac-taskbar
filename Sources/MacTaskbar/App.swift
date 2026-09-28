@@ -20,10 +20,9 @@ enum MacTaskbarApp {
     /// Accessibility check applies to the terminal app, not to MacTaskbar.app.
     private static func dump() {
         print("AXIsProcessTrusted: \(AXIsProcessTrusted())")
-        let source = WindowSource()
-        let windows = source.windows()
+        let (windows, report) = WindowSource().windowsAndReport(.current())
         print("\nPer app:")
-        source.report.forEach { print("  \($0)") }
+        report.forEach { print("  \($0)") }
         print("\nShown windows (\(windows.count)):")
         for w in windows {
             print("  [\(w.appName)] \(w.displayTitle) frame=\(w.frame) minimized=\(w.isMinimized) focused=\(w.isFocused)")
@@ -39,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private var lastTrusted: Bool?
     private var lastCounts: [Int] = []
+    /// An enumeration is running on the AX queue; further refreshes only mark it `dirty`.
+    private var refreshing = false
+    private var dirty = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.app.info("Started from \(Bundle.main.bundlePath, privacy: .public)")
@@ -85,8 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let bar = TaskbarBar(screen: screen)
             bar.onClick = { [weak self] w in self?.clicked(w) }
             bar.onClose = { [weak self] w in
-                self?.source.close(w)
-                self?.refresh()
+                self?.source.close(w) { self?.refreshSoon() }
             }
             return bar
         }
@@ -105,10 +106,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let windows = source.windows()
-        observer.sync(with: NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular && $0.processIdentifier != getpid()
-        })
+        // One enumeration at a time: a hung app delays the snapshot but never queues up work.
+        guard !refreshing else {
+            dirty = true
+            return
+        }
+        refreshing = true
+        let context = EnumerationContext.current()
+        source.windows(context) { [weak self] windows in
+            guard let self else { return }
+            refreshing = false
+            observer.sync(with: context.apps.map(\.app))
+            apply(windows)
+            if dirty {
+                dirty = false
+                refresh()
+            }
+        }
+    }
+
+    private func apply(_ windows: [TaskWindow]) {
         observer.observe(windows)
 
         var perBar = Array(repeating: [TaskWindow](), count: bars.count)
@@ -139,11 +156,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Windows taskbar semantics: clicking the focused window minimizes it, otherwise focus it.
     private func clicked(_ w: TaskWindow) {
         if w.isFocused && w.isVisible {
-            source.minimize(w)
+            source.minimize(w) { [weak self] in self?.refreshSoon() }
         } else {
-            source.focus(w)
+            source.focus(w) { [weak self] in self?.refreshSoon() }
         }
-        // Give the target app a moment to apply the change before re-reading state.
+    }
+
+    /// Gives the target app a moment to apply an action before re-reading state.
+    private func refreshSoon() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             MainActor.assumeIsolated { self?.refresh() }
         }
