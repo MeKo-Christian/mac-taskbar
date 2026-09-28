@@ -68,6 +68,9 @@ final class WindowSource: @unchecked Sendable {
     private var report: [String] = []
     private var lastReport: [pid_t: String] = [:]
 
+    /// Incremented per focus request, so a delayed activation check can tell it was superseded.
+    @MainActor private var focusRequest = 0
+
     init() {
         // Keep unresponsive apps from stalling the bar (global timeout, in seconds).
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
@@ -159,11 +162,18 @@ final class WindowSource: @unchecked Sendable {
     /// cooperative activation via `NSRunningApplication`.
     @MainActor
     func focus(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
+        focusRequest += 1
+        let request = focusRequest
+        let previous = NSWorkspace.shared.frontmostApplication
         if w.app.isHidden { w.app.unhide() }
         perform({
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.activationCheckDelay) {
                 MainActor.assumeIsolated {
-                    if w.app.isActive { completion() } else { self.activate(w, completion: completion) }
+                    // Fall back only if the AX activation had no effect: no newer request, and the
+                    // app that was frontmost before is still frontmost (otherwise the user moved on).
+                    let ignored = !w.app.isActive && request == self.focusRequest
+                        && NSWorkspace.shared.frontmostApplication == previous
+                    if ignored { self.activate(w, completion: completion) } else { completion() }
                 }
             }
         }) {
