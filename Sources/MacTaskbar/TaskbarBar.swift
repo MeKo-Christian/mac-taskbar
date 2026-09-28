@@ -59,7 +59,7 @@ final class TaskbarBar: NSObject {
     }
 
     func update(_ windows: [TaskWindow]) {
-        let sig = windows.map { "\(CFHash($0.element))|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)" }
+        let sig = windows.map { "\($0.key.id)|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)" }
         guard sig != signature else { return }
         signature = sig
 

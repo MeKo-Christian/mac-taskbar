@@ -1,12 +1,34 @@
 import AppKit
 import ApplicationServices
 
-/// Hashable wrapper so AX window elements can be tracked across refreshes.
+/// Private, but stable for years and used by AltTab, Rectangle and yabai: the `CGWindowID` behind
+/// an AX window element. Not available through any public API.
+@_silgen_name("_AXUIElementGetWindow")
+private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
+
+/// Identity of a window across refreshes: its `CGWindowID` when the window server reports one
+/// (also needed for previews and cross-Space tracking), otherwise the AX element itself.
 struct WindowKey: Hashable {
     let element: AXUIElement
+    let windowID: CGWindowID?
 
-    static func == (a: WindowKey, b: WindowKey) -> Bool { CFEqual(a.element, b.element) }
+    init(element: AXUIElement) {
+        self.element = element
+        var id: CGWindowID = 0
+        windowID = _AXUIElementGetWindow(element, &id) == .success && id != 0 ? id : nil
+    }
+
+    /// Elements of the same window are `CFEqual`, so hashing the element stays consistent with
+    /// comparing by window ID.
+    static func == (a: WindowKey, b: WindowKey) -> Bool {
+        if let x = a.windowID, let y = b.windowID { return x == y }
+        return CFEqual(a.element, b.element)
+    }
+
     func hash(into hasher: inout Hasher) { hasher.combine(CFHash(element)) }
+
+    /// Short, stable description for change detection and logs.
+    var id: String { windowID.map { "\($0)" } ?? "ax\(CFHash(element))" }
 }
 
 /// A standard top-level window of a regular app, as seen through the Accessibility API.
@@ -22,6 +44,7 @@ struct TaskWindow: @unchecked Sendable {
     let isAppHidden: Bool
 
     var element: AXUIElement { key.element }
+    var windowID: CGWindowID? { key.windowID }
     var appName: String { app.localizedName ?? "?" }
     var displayTitle: String { title.isEmpty ? appName : title }
     /// Minimized windows and windows of hidden apps are not visible on screen.
