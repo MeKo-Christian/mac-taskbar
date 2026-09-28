@@ -16,6 +16,8 @@ Requires Xcode command line tools (Swift) and [just](https://github.com/casey/ju
 ```sh
 just dev-cert # once: create a self-signed "MacTaskbar Dev" signing identity (asks for your password)
 just run      # swift build, wrap into dist/MacTaskbar.app, sign, launch
+just lint     # check formatting and lint rules (swift-format, config in .swift-format)
+just format   # format in place; `just lint-fix` formats and then lints
 ```
 
 On first launch, grant Accessibility access in System Settings → Privacy &

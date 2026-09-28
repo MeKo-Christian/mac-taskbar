@@ -46,6 +46,17 @@ dev-cert:
 reset-permission:
     tccutil reset Accessibility {{bundle_id}}
 
+# Format all Swift sources in place (swift-format, bundled with the toolchain; config in .swift-format)
+format:
+    swift format format --in-place --recursive --parallel Sources Package.swift
+
+# Check formatting and lint rules; fails on any finding
+lint:
+    swift format lint --strict --recursive --parallel Sources Package.swift
+
+# Apply every automatic fix (swift-format fixes by formatting), then report what is left
+lint-fix: format lint
+
 # Remove build output
 clean:
     rm -rf .build dist
