@@ -10,7 +10,8 @@ struct WindowKey: Hashable {
 }
 
 /// A standard top-level window of a regular app, as seen through the Accessibility API.
-struct TaskWindow {
+/// An immutable snapshot: built on the AX queue, consumed on the main thread.
+struct TaskWindow: @unchecked Sendable {
     let key: WindowKey
     let app: NSRunningApplication
     let title: String
@@ -18,40 +19,86 @@ struct TaskWindow {
     let frame: CGRect
     let isMinimized: Bool
     let isFocused: Bool
+    let isAppHidden: Bool
 
     var element: AXUIElement { key.element }
     var appName: String { app.localizedName ?? "?" }
     var displayTitle: String { title.isEmpty ? appName : title }
     /// Minimized windows and windows of hidden apps are not visible on screen.
-    var isVisible: Bool { !isMinimized && !app.isHidden }
+    var isVisible: Bool { !isMinimized && !isAppHidden }
+}
+
+/// Main-thread state an enumeration needs, captured up front so the AX queue never touches
+/// NSWorkspace or NSScreen.
+struct EnumerationContext: @unchecked Sendable {
+    struct App {
+        let app: NSRunningApplication
+        let isHidden: Bool
+    }
+
+    let apps: [App]
+    let frontmostPid: pid_t?
+    let primaryHeight: CGFloat
+
+    /// Regular apps except ourselves.
+    @MainActor
+    static func current() -> EnumerationContext {
+        let apps = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.processIdentifier != getpid() }
+            .map { App(app: $0, isHidden: $0.isHidden) }
+        return EnumerationContext(
+            apps: apps,
+            frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
+    }
 }
 
 /// Enumerates and manipulates windows via the Accessibility API.
+/// AX calls block up to the messaging timeout per unresponsive app, so all of them run on a
+/// private serial queue; results are delivered to the main thread as immutable snapshots.
 /// Note: AX only reports windows on the current Space.
-@MainActor
-final class WindowSource {
+final class WindowSource: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "io.github.cwbudde.mactaskbar.ax", qos: .userInitiated)
+
+    // Confined to `queue`.
     /// First-seen order, so buttons don't jump around when focus changes.
     private var order: [WindowKey: Int] = [:]
     private var nextIndex = 0
+    /// One line per app describing the last enumeration; used for logging and `--dump`.
+    private var report: [String] = []
+    private var lastReport: [pid_t: String] = [:]
 
     init() {
         // Keep unresponsive apps from stalling the bar (global timeout, in seconds).
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
     }
 
-    /// One line per app describing the last enumeration; used for logging and `--dump`.
-    private(set) var report: [String] = []
-    private var lastReport: [pid_t: String] = [:]
+    /// Enumerates on the AX queue and delivers the snapshot on the main thread.
+    func windows(_ ctx: EnumerationContext, completion: @escaping @MainActor ([TaskWindow]) -> Void) {
+        queue.async { [self] in
+            let start = DispatchTime.now()
+            let result = enumerate(ctx)
+            let ms = (DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
+            if ms > 100 { Log.ax.debug("Enumeration took \(ms) ms") }
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(result) } }
+        }
+    }
 
-    func windows() -> [TaskWindow] {
-        let focused = focusedWindow()
-        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+    /// Blocking variant for `--dump`: the snapshot plus the per-app report.
+    func windowsAndReport(_ ctx: EnumerationContext) -> ([TaskWindow], [String]) {
+        queue.sync { (enumerate(ctx), report) }
+    }
+
+    private func enumerate(_ ctx: EnumerationContext) -> [TaskWindow] {
+        dispatchPrecondition(condition: .onQueue(queue))
+        let focused = focusedWindow(ctx.frontmostPid)
+        let primaryHeight = ctx.primaryHeight
         var result: [TaskWindow] = []
         var report: [pid_t: String] = [:]
 
-        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+        for entry in ctx.apps {
+            let app = entry.app
             let pid = app.processIdentifier
-            if pid == getpid() { continue }
             let appElement = AXUIElementCreateApplication(pid)
             let name = app.localizedName ?? app.bundleIdentifier ?? "pid \(pid)"
             let (elements, error): ([AXUIElement]?, AXError) = copyAttributeResult(appElement, kAXWindowsAttribute)
@@ -68,7 +115,9 @@ final class WindowSource {
                 subroles.append(subrole ?? "nil")
                 guard let pos = copyPoint(element, kAXPositionAttribute),
                       let size = copySize(element, kAXSizeAttribute) else { continue }
-                guard Self.isTaskWindow(role: role, subrole: subrole, size: size) else { continue }
+                let isMinimized: Bool = copyAttribute(element, kAXMinimizedAttribute) ?? false
+                guard Self.isTaskWindow(role: role, subrole: subrole, size: size, isMinimized: isMinimized)
+                else { continue }
                 accepted += 1
 
                 // AX uses top-left origin with y pointing down; convert to Cocoa coordinates.
@@ -80,8 +129,9 @@ final class WindowSource {
                     app: app,
                     title: copyAttribute(element, kAXTitleAttribute) ?? "",
                     frame: frame,
-                    isMinimized: copyAttribute(element, kAXMinimizedAttribute) ?? false,
-                    isFocused: focused.map { CFEqual($0, element) } ?? false
+                    isMinimized: isMinimized,
+                    isFocused: focused.map { CFEqual($0, element) } ?? false,
+                    isAppHidden: entry.isHidden
                 ))
             }
             report[pid] = "\(name): \(elements.count) windows, \(accepted) shown, subroles \(subroles)"
@@ -100,31 +150,48 @@ final class WindowSource {
         return result.sorted { order[$0.key]! < order[$1.key]! }
     }
 
-    func focus(_ w: TaskWindow) {
+    /// Unhides the app (main thread), then raises and focuses the window on the AX queue.
+    @MainActor
+    func focus(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
         if w.app.isHidden { w.app.unhide() }
-        if w.isMinimized {
-            AXUIElementSetAttributeValue(w.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        perform(completion) {
+            if w.isMinimized {
+                AXUIElementSetAttributeValue(w.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            }
+            AXUIElementPerformAction(w.element, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(w.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            // Bringing the app to front via AX works even though our panel never becomes active.
+            let appElement = AXUIElementCreateApplication(w.app.processIdentifier)
+            AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         }
-        AXUIElementPerformAction(w.element, kAXRaiseAction as CFString)
-        AXUIElementSetAttributeValue(w.element, kAXMainAttribute as CFString, kCFBooleanTrue)
-        // Bringing the app to front via AX works even though our panel never becomes active.
-        let appElement = AXUIElementCreateApplication(w.app.processIdentifier)
-        AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     }
 
-    func minimize(_ w: TaskWindow) {
-        AXUIElementSetAttributeValue(w.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+    func minimize(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
+        perform(completion) {
+            AXUIElementSetAttributeValue(w.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+        }
     }
 
-    func close(_ w: TaskWindow) {
-        if let button: AXUIElement = copyAttribute(w.element, kAXCloseButtonAttribute) {
-            AXUIElementPerformAction(button, kAXPressAction as CFString)
+    func close(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
+        perform(completion) {
+            if let button: AXUIElement = copyAttribute(w.element, kAXCloseButtonAttribute) {
+                AXUIElementPerformAction(button, kAXPressAction as CFString)
+            }
+        }
+    }
+
+    private func perform(_ completion: @escaping @MainActor () -> Void, _ action: @escaping () -> Void) {
+        queue.async {
+            action()
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion() } }
         }
     }
 
     /// Standard windows, plus large role-only windows (Electron/Java apps often lack a proper subrole).
-    private static func isTaskWindow(role: String?, subrole: String?, size: CGSize) -> Bool {
+    /// Minimized windows report subrole `AXDialog`, so they are accepted by role alone.
+    private static func isTaskWindow(role: String?, subrole: String?, size: CGSize, isMinimized: Bool) -> Bool {
         if subrole == kAXStandardWindowSubrole { return true }
+        if isMinimized && role == kAXWindowRole { return true }
         guard role == kAXWindowRole, subrole == nil || subrole == kAXUnknownSubrole else { return false }
         return size.width >= 100 && size.height >= 60
     }
@@ -137,10 +204,9 @@ final class WindowSource {
         lastReport = report
     }
 
-    private func focusedWindow() -> AXUIElement? {
-        guard let front = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(front.processIdentifier)
-        return copyAttribute(appElement, kAXFocusedWindowAttribute)
+    private func focusedWindow(_ pid: pid_t?) -> AXUIElement? {
+        guard let pid else { return nil }
+        return copyAttribute(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute)
     }
 }
 

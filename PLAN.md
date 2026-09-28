@@ -28,15 +28,25 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 
 ## Phase 1 — Correct, efficient window tracking
 
-- [ ] **Event-driven updates.** Replace polling with one `AXObserver` per app
+- [x] **Event-driven updates.** Replace polling with one `AXObserver` per app
   (`kAXWindowCreated`, `kAXUIElementDestroyed`, `kAXTitleChanged`,
   `kAXFocusedWindowChanged`, `kAXWindowMiniaturized`/`Deminiaturized`,
   `kAXWindowMoved`/`Resized`, `kAXApplicationHidden`/`Shown`). Attach on app
   launch, detach on terminate. Keep a slow (e.g. 5 s) reconciliation poll as a
-  safety net.
-- [ ] **Keep AX off the main thread.** AX calls block up to the messaging timeout
+  safety net. (2026-09-28) — `WindowObserver`: app-level notifications on the app
+  element, window-level ones per window, bursts coalesced (50 ms); attach/detach
+  reconciled on every refresh (retries apps still launching); poll 0.5 s → 5 s.
+  Verified with Finder/TextEdit via osascript: every listed notification fires and
+  the bar updates 70–100 ms later (incl. moving a window to the other screen); idle
+  CPU ≈0.2 % vs ≈2.1 % before.
+- [x] **Keep AX off the main thread.** AX calls block up to the messaging timeout
   per unresponsive app. Run enumeration on a background queue/actor and publish
-  immutable snapshots to the UI.
+  immutable snapshots to the UI. (2026-09-28) — `WindowSource` runs enumeration and
+  focus/minimize/close on a private serial queue; the main thread passes in an
+  `EnumerationContext` (apps, frontmost pid, screen height) and gets `TaskWindow`
+  snapshots back; one enumeration in flight at a time, later refreshes coalesce.
+  Verified with `sample` while TextEdit was stopped (`kill -STOP`): AX calls on the
+  main thread 1391 samples before → 0 after (1375 now on the AX queue).
 - [ ] **Stable window identity.** `CFEqual` on `AXUIElement` works but is opaque.
   Evaluate `_AXUIElementGetWindow` (private, used by AltTab/Rectangle) to get the
   `CGWindowID`; needed anyway for previews and cross-Space tracking.
@@ -48,6 +58,10 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   untitled windows, Electron/Java apps with non-standard subroles, Finder
   desktop, windows of apps that are still launching, tabbed windows
   (Safari/Finder/Terminal tabs share one AX window).
+  (2026-09-28) — partial: minimized windows report subrole `AXDialog` and were
+  dropped; now accepted by role + `kAXMinimizedAttribute`. Rest still open.
+  (2026-09-28) — found: TextEdit document windows report subrole `AXDialog` even
+  when not minimized, so they are dropped (also on the pre-change build).
 - [ ] **Full-screen apps.** Hide the bar on full-screen Spaces; list full-screen
   windows and switch to their Space when clicked.
 - [ ] **Focus reliability.** Verify focusing works for minimized windows, hidden
