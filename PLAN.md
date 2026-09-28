@@ -28,12 +28,17 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 
 ## Phase 1 — Correct, efficient window tracking
 
-- [ ] **Event-driven updates.** Replace polling with one `AXObserver` per app
+- [x] **Event-driven updates.** Replace polling with one `AXObserver` per app
   (`kAXWindowCreated`, `kAXUIElementDestroyed`, `kAXTitleChanged`,
   `kAXFocusedWindowChanged`, `kAXWindowMiniaturized`/`Deminiaturized`,
   `kAXWindowMoved`/`Resized`, `kAXApplicationHidden`/`Shown`). Attach on app
   launch, detach on terminate. Keep a slow (e.g. 5 s) reconciliation poll as a
-  safety net.
+  safety net. (2026-09-28) — `WindowObserver`: app-level notifications on the app
+  element, window-level ones per window, bursts coalesced (50 ms); attach/detach
+  reconciled on every refresh (retries apps still launching); poll 0.5 s → 5 s.
+  Verified with Finder/TextEdit via osascript: every listed notification fires and
+  the bar updates 70–100 ms later (incl. moving a window to the other screen); idle
+  CPU ≈0.2 % vs ≈2.1 % before.
 - [ ] **Keep AX off the main thread.** AX calls block up to the messaging timeout
   per unresponsive app. Run enumeration on a background queue/actor and publish
   immutable snapshots to the UI.
@@ -48,6 +53,8 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   untitled windows, Electron/Java apps with non-standard subroles, Finder
   desktop, windows of apps that are still launching, tabbed windows
   (Safari/Finder/Terminal tabs share one AX window).
+  (2026-09-28) — partial: minimized windows report subrole `AXDialog` and were
+  dropped; now accepted by role + `kAXMinimizedAttribute`. Rest still open.
 - [ ] **Full-screen apps.** Hide the bar on full-screen Spaces; list full-screen
   windows and switch to their Space when clicked.
 - [ ] **Focus reliability.** Verify focusing works for minimized windows, hidden
