@@ -23,7 +23,7 @@ struct WindowKey: Hashable {
     /// once is treated as a new window rather than breaking the `Hashable` contract.
     static func == (a: WindowKey, b: WindowKey) -> Bool {
         switch (a.windowID, b.windowID) {
-        case let (x?, y?): x == y
+        case (let x?, let y?): x == y
         case (nil, nil): CFEqual(a.element, b.element)
         default: false
         }
