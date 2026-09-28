@@ -46,13 +46,16 @@ dev-cert:
 reset-permission:
     tccutil reset Accessibility {{bundle_id}}
 
-# Format all Swift sources in place (swift-format, bundled with the toolchain; config in .swift-format)
+# swift-format ships with Swift 6 / Xcode 16; older toolchains need `brew install swift-format`.
+swift_format := `swift format --version >/dev/null 2>&1 && echo "swift format" || echo swift-format`
+
+# Format all Swift sources in place (config in .swift-format)
 format:
-    swift format format --in-place --recursive --parallel Sources Package.swift
+    {{swift_format}} format --in-place --recursive --parallel Sources Package.swift
 
 # Check formatting and lint rules; fails on any finding
 lint:
-    swift format lint --strict --recursive --parallel Sources Package.swift
+    {{swift_format}} lint --strict --recursive --parallel Sources Package.swift
 
 # Apply every automatic fix (swift-format fixes by formatting), then report what is left
 lint-fix: format lint

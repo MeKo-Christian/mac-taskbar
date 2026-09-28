@@ -20,6 +20,10 @@ just lint     # check formatting and lint rules (swift-format, config in .swift-
 just format   # format in place; `just lint-fix` formats and then lints
 ```
 
+`just lint` / `just format` use the `swift format` bundled with Swift 6 (Xcode 16) and
+later. On older toolchains, install the standalone formatter (`brew install swift-format`);
+the recipes pick it up automatically.
+
 On first launch, grant Accessibility access in System Settings → Privacy &
 Security → Accessibility. With the `MacTaskbar Dev` identity the grant survives
 rebuilds. Without it, `just` falls back to ad-hoc signing, which changes on every
