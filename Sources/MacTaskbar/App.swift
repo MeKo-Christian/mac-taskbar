@@ -34,6 +34,7 @@ enum MacTaskbarApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let source = WindowSource()
+    private let observer = WindowObserver()
     private var bars: [TaskbarBar] = []
     private var timer: Timer?
     private var lastTrusted: Bool?
@@ -63,8 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             workspace.addObserver(self, selector: #selector(refresh), name: name, object: nil)
         }
 
-        // Polling catches what notifications don't: new windows, title and focus changes.
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        observer.onChange = { [weak self] in self?.refresh() }
+
+        // AX notifications drive updates; this slow poll only reconciles missed events and
+        // retries attaching to apps that were still launching.
+        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
         refresh()
@@ -101,8 +105,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let windows = source.windows()
+        observer.sync(with: NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && $0.processIdentifier != getpid()
+        })
+        observer.observe(windows)
+
         var perBar = Array(repeating: [TaskWindow](), count: bars.count)
-        for w in source.windows() {
+        for w in windows {
             if let i = barIndex(for: w.frame) { perBar[i].append(w) }
         }
         for (bar, windows) in zip(bars, perBar) { bar.update(windows) }
