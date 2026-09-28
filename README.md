@@ -38,4 +38,6 @@ build, and macOS silently stops applying the old grant.
 
 - Windows are read via the Accessibility API, which only sees the current Space.
 - macOS has no API to reserve screen space, so maximized windows extend underneath the bar.
-- State is polled every 0.5 s instead of using per-app `AXObserver` notifications.
+- Tabs are not listed separately: Safari, Finder, Terminal and browser tabs share one
+  window, so they get one button.
+- Floating panels (e.g. Fonts, Inspector), sheets and dialogs such as About boxes are not listed.

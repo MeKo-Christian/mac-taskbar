@@ -107,16 +107,20 @@ final class WindowSource: @unchecked Sendable {
                 continue
             }
 
-            var subroles: [String] = []
+            var kinds: [String] = []
             var accepted = 0
             for element in elements {
                 let role: String? = copyAttribute(element, kAXRoleAttribute)
                 let subrole: String? = copyAttribute(element, kAXSubroleAttribute)
-                subroles.append(subrole ?? "nil")
+                let canMinimize = copyAttribute(element, kAXMinimizeButtonAttribute).flatMap { (button: AXUIElement) in
+                    copyAttribute(button, kAXEnabledAttribute) as Bool?
+                } ?? false
+                kinds.append("\(role ?? "nil")/\(subrole ?? "nil")\(canMinimize ? "+min" : "")")
                 guard let pos = copyPoint(element, kAXPositionAttribute),
                       let size = copySize(element, kAXSizeAttribute) else { continue }
                 let isMinimized: Bool = copyAttribute(element, kAXMinimizedAttribute) ?? false
-                guard Self.isTaskWindow(role: role, subrole: subrole, size: size, isMinimized: isMinimized)
+                guard Self.isTaskWindow(
+                    role: role, subrole: subrole, size: size, isMinimized: isMinimized, canMinimize: canMinimize)
                 else { continue }
                 accepted += 1
 
@@ -134,7 +138,7 @@ final class WindowSource: @unchecked Sendable {
                     isAppHidden: entry.isHidden
                 ))
             }
-            report[pid] = "\(name): \(elements.count) windows, \(accepted) shown, subroles \(subroles)"
+            report[pid] = "\(name): \(elements.count) windows, \(accepted) shown, role/subrole \(kinds)"
         }
 
         logChanges(report)
@@ -188,10 +192,16 @@ final class WindowSource: @unchecked Sendable {
     }
 
     /// Standard windows, plus large role-only windows (Electron/Java apps often lack a proper subrole).
-    /// Minimized windows report subrole `AXDialog`, so they are accepted by role alone.
-    private static func isTaskWindow(role: String?, subrole: String?, size: CGSize, isMinimized: Bool) -> Bool {
+    /// Minimized windows report subrole `AXDialog`, so they are accepted by role alone. Document
+    /// windows can also report `AXDialog` (TextEdit, until the app is first activated); unlike real
+    /// dialogs such as About boxes they have an enabled minimize button. Floating panels
+    /// (`AXFloatingWindow`) and sheets (not in `kAXWindows`) are never listed.
+    private static func isTaskWindow(
+        role: String?, subrole: String?, size: CGSize, isMinimized: Bool, canMinimize: Bool
+    ) -> Bool {
         if subrole == kAXStandardWindowSubrole { return true }
         if isMinimized && role == kAXWindowRole { return true }
+        if subrole == kAXDialogSubrole && role == kAXWindowRole && canMinimize { return true }
         guard role == kAXWindowRole, subrole == nil || subrole == kAXUnknownSubrole else { return false }
         return size.width >= 100 && size.height >= 60
     }
