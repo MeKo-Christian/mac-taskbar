@@ -12,16 +12,16 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
     "Grant Accessibility access…" message if not). Log it via `os.Logger`.
   - Ad-hoc signing (`codesign --sign -`) changes the code identity on every
     build, so a grant made for an older build silently stops applying. Remove the
-    stale entry in System Settings / `make reset-permission`, then grant again.
+    stale entry in System Settings / `just reset-permission`, then grant again.
   - If trusted but still empty: log per app the `AXError` of
     `kAXWindowsAttribute` and the subroles returned; verify the
     `kAXStandardWindowSubrole` filter isn't dropping everything.
-  - Done: trust + per-app AX diagnostics (`make logs`, `make dump`); filter also
+  - Done: trust + per-app AX diagnostics (`just logs`, `just dump`); filter also
     accepts large role-only windows (Electron/Java). Open until confirmed with the
     stable signing identity.
 - [x] **Stable signing identity for development.** Create a self-signed
   "MacTaskbar Dev" code-signing certificate in the login keychain and sign with it
-  in the Makefile, so the Accessibility grant survives rebuilds.
+  in the justfile, so the Accessibility grant survives rebuilds.
 - [x] **Diagnostics.** `os.Logger` with subsystem `io.github.cwbudde.mactaskbar`
   (view with `log stream --predicate 'subsystem == "io.github.cwbudde.mactaskbar"'`).
 - [x] `git init`, first commit, LICENSE (MIT).
@@ -100,7 +100,7 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 - [ ] Protocol around the AX layer so the UI can run against a fake source.
 - [ ] Performance budget: idle CPU < 0.5 %, no memory growth over 24 h;
   measure with Instruments.
-- [ ] Linting/formatting: `swift-format` (or SwiftLint) in `make lint`.
+- [ ] Linting/formatting: `swift-format` (or SwiftLint) in `just lint`.
 - [ ] CI: GitHub Actions on a macOS runner — build, test, lint.
 - [ ] Switch to Swift 6 language mode with strict concurrency once AX work is
   moved to an actor.

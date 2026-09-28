@@ -43,4 +43,4 @@ security import "$TMP/cert.p12" -k "$KEYCHAIN" -P "$PASS" -T /usr/bin/codesign
 security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
 
 security find-identity -v -p codesigning | grep "\"$NAME\"" \
-    && echo "Done. Run 'make reset-permission', then 'make run' and grant Accessibility once more."
+    && echo "Done. Run 'just reset-permission', then 'just run' and grant Accessibility once more."
