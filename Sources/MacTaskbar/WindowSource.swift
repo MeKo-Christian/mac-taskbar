@@ -68,7 +68,9 @@ final class WindowSource {
                 subroles.append(subrole ?? "nil")
                 guard let pos = copyPoint(element, kAXPositionAttribute),
                       let size = copySize(element, kAXSizeAttribute) else { continue }
-                guard Self.isTaskWindow(role: role, subrole: subrole, size: size) else { continue }
+                let isMinimized: Bool = copyAttribute(element, kAXMinimizedAttribute) ?? false
+                guard Self.isTaskWindow(role: role, subrole: subrole, size: size, isMinimized: isMinimized)
+                else { continue }
                 accepted += 1
 
                 // AX uses top-left origin with y pointing down; convert to Cocoa coordinates.
@@ -80,7 +82,7 @@ final class WindowSource {
                     app: app,
                     title: copyAttribute(element, kAXTitleAttribute) ?? "",
                     frame: frame,
-                    isMinimized: copyAttribute(element, kAXMinimizedAttribute) ?? false,
+                    isMinimized: isMinimized,
                     isFocused: focused.map { CFEqual($0, element) } ?? false
                 ))
             }
@@ -123,8 +125,10 @@ final class WindowSource {
     }
 
     /// Standard windows, plus large role-only windows (Electron/Java apps often lack a proper subrole).
-    private static func isTaskWindow(role: String?, subrole: String?, size: CGSize) -> Bool {
+    /// Minimized windows report subrole `AXDialog`, so they are accepted by role alone.
+    private static func isTaskWindow(role: String?, subrole: String?, size: CGSize, isMinimized: Bool) -> Bool {
         if subrole == kAXStandardWindowSubrole { return true }
+        if isMinimized && role == kAXWindowRole { return true }
         guard role == kAXWindowRole, subrole == nil || subrole == kAXUnknownSubrole else { return false }
         return size.width >= 100 && size.height >= 60
     }
