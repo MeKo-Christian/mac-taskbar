@@ -5,20 +5,14 @@ the Accessibility (AX) API, polled every 0.5 s, buttons rebuilt on every change.
 
 Phases are ordered by dependency; within a phase, items are roughly by priority.
 
-## Phase 0 — Make the PoC work reliably
+## Phase 0 — Make the PoC work reliably — ✅ DONE (2026-09-28)
 
-- [ ] **Fix the empty bar.** Confirmed symptom: bar appears, no windows listed.
-  - Check whether `AXIsProcessTrusted()` returns true (the bar should show the
-    "Grant Accessibility access…" message if not). Log it via `os.Logger`.
-  - Ad-hoc signing (`codesign --sign -`) changes the code identity on every
-    build, so a grant made for an older build silently stops applying. Remove the
-    stale entry in System Settings / `just reset-permission`, then grant again.
-  - If trusted but still empty: log per app the `AXError` of
-    `kAXWindowsAttribute` and the subroles returned; verify the
-    `kAXStandardWindowSubrole` filter isn't dropping everything.
-  - Done: trust + per-app AX diagnostics (`just logs`, `just dump`); filter also
-    accepts large role-only windows (Electron/Java). Open until confirmed with the
-    stable signing identity.
+- [x] **Fix the empty bar.** (2026-09-28) — Root cause: ad-hoc signing tied the
+  Accessibility grant to one build's cdhash. Signed with "MacTaskbar Dev" (designated
+  requirement = identifier + certificate leaf), `just reset-permission`, granted
+  once: log shows `AXIsProcessTrusted = true`, `Windows per bar: [7, 1]`, and a
+  rebuilt app stays trusted without re-granting. Diagnostics via `just logs` /
+  `just dump`; filter also accepts large role-only windows (Electron/Java).
 - [x] **Stable signing identity for development.** Create a self-signed
   "MacTaskbar Dev" code-signing certificate in the login keychain and sign with it
   in the justfile, so the Accessibility grant survives rebuilds.
