@@ -10,6 +10,9 @@ final class WindowObserver {
     private struct AppObservation {
         let observer: AXObserver
         let appElement: AXUIElement
+        /// App-level notifications whose registration failed transiently; retried on every sync.
+        var pending: [String]
+        /// Windows with all window-level notifications registered.
         var windows: Set<WindowKey> = []
     }
 
@@ -38,6 +41,9 @@ final class WindowObserver {
         let pids = Set(running.map(\.processIdentifier))
         for pid in apps.keys where !pids.contains(pid) { detach(pid) }
         for app in running where apps[app.processIdentifier] == nil { attach(app) }
+        for (pid, obs) in apps where !obs.pending.isEmpty {
+            apps[pid]?.pending = register(obs.pending, on: obs.appElement, with: obs.observer).transient
+        }
     }
 
     /// Registers per-window notifications for newly seen windows and forgets vanished ones.
@@ -50,12 +56,13 @@ final class WindowObserver {
                     AXObserverRemoveNotification(obs.observer, key.element, name as CFString)
                 }
             }
-            for key in current.subtracting(obs.windows) {
-                for name in Self.windowNotifications {
-                    AXObserverAddNotification(obs.observer, key.element, name as CFString, selfPointer)
-                }
+            obs.windows.formIntersection(current)
+            // A window counts as observed only once every registration went through; otherwise the
+            // next refresh retries it (already registered notifications report success again).
+            for key in current.subtracting(obs.windows)
+            where register(Self.windowNotifications, on: key.element, with: obs.observer).transient.isEmpty {
+                obs.windows.insert(key)
             }
-            obs.windows = current
             apps[pid] = obs
         }
     }
@@ -69,22 +76,39 @@ final class WindowObserver {
             return
         }
         let appElement = AXUIElementCreateApplication(pid)
-        var failures: [String] = []
-        for notification in Self.appNotifications {
-            let error = AXObserverAddNotification(observer, appElement, notification as CFString, selfPointer)
-            if error != .success && error != .notificationAlreadyRegistered {
-                failures.append("\(notification): \(describe(error))")
-            }
-        }
-        // All registrations failing usually means the app is still launching; retry on the next sync.
-        if failures.count == Self.appNotifications.count {
-            Log.events.debug("Attach to \(name, privacy: .public) failed: \(failures, privacy: .public)")
+        let result = register(Self.appNotifications, on: appElement, with: observer)
+        // Nothing registered usually means the app is still launching; retry on the next sync.
+        if result.registered == 0 {
+            Log.events.debug("Attach to \(name, privacy: .public) failed: \(result.failures, privacy: .public)")
             return
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
-        apps[pid] = AppObservation(observer: observer, appElement: appElement)
-        let partial = failures.isEmpty ? "" : ", partial: \(failures)"
+        apps[pid] = AppObservation(observer: observer, appElement: appElement, pending: result.transient)
+        let partial = result.failures.isEmpty ? "" : ", partial: \(result.failures)"
         Log.events.debug("Attached to \(name, privacy: .public)\(partial, privacy: .public)")
+    }
+
+    /// Registers `names` on `element`. `transient` lists the ones worth retrying (the app was busy);
+    /// other errors, e.g. an unsupported notification, are permanent and only reported.
+    private func register(
+        _ names: [String], on element: AXUIElement, with observer: AXObserver
+    ) -> (registered: Int, transient: [String], failures: [String]) {
+        var registered = 0
+        var transient: [String] = []
+        var failures: [String] = []
+        for name in names {
+            let error = AXObserverAddNotification(observer, element, name as CFString, selfPointer)
+            switch error {
+            case .success, .notificationAlreadyRegistered:
+                registered += 1
+            case .cannotComplete:
+                transient.append(name)
+                failures.append("\(name): \(describe(error))")
+            default:
+                failures.append("\(name): \(describe(error))")
+            }
+        }
+        return (registered, transient, failures)
     }
 
     private func detach(_ pid: pid_t) {
