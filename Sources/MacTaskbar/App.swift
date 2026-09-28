@@ -10,6 +10,10 @@ enum MacTaskbarApp {
             dump()
             return
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--focus"), i + 1 < CommandLine.arguments.count {
+            focus(matching: CommandLine.arguments[i + 1])
+            return
+        }
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.accessory)
@@ -27,6 +31,26 @@ enum MacTaskbarApp {
         for w in windows {
             print("  [\(w.appName)] \(w.displayTitle) frame=\(w.frame) minimized=\(w.isMinimized) focused=\(w.isFocused)")
         }
+    }
+
+    /// Focuses the first window whose title contains `text`, as a click on its button would, then
+    /// prints what ended up focused. For testing focus without clicking.
+    private static func focus(matching text: String) {
+        let source = WindowSource()
+        let (windows, _) = source.windowsAndReport(.current())
+        guard let w = windows.first(where: { $0.displayTitle.localizedCaseInsensitiveContains(text) }) else {
+            print("No window matching \"\(text)\"")
+            return
+        }
+        print("Focusing [\(w.appName)] \(w.displayTitle) minimized=\(w.isMinimized) appHidden=\(w.isAppHidden)")
+        var done = false
+        source.focus(w) { done = true }
+        while !done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05)) }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+        let (after, _) = source.windowsAndReport(.current())
+        let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        let focused = after.first(where: \.isFocused).map { "[\($0.appName)] \($0.displayTitle)" } ?? "none"
+        print("Frontmost app: \(front)\nFocused window: \(focused)")
     }
 }
 

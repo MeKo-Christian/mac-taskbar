@@ -155,19 +155,43 @@ final class WindowSource: @unchecked Sendable {
     }
 
     /// Unhides the app (main thread), then raises and focuses the window on the AX queue.
+    /// Some activations are ignored, e.g. while the app is still unhiding; those fall back to
+    /// cooperative activation via `NSRunningApplication`.
     @MainActor
     func focus(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
         if w.app.isHidden { w.app.unhide() }
-        perform(completion) {
+        perform({
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.activationCheckDelay) {
+                MainActor.assumeIsolated {
+                    if w.app.isActive { completion() } else { self.activate(w, completion: completion) }
+                }
+            }
+        }) {
             if w.isMinimized {
                 AXUIElementSetAttributeValue(w.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             }
-            AXUIElementPerformAction(w.element, kAXRaiseAction as CFString)
-            AXUIElementSetAttributeValue(w.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            Self.raise(w)
             // Bringing the app to front via AX works even though our panel never becomes active.
             let appElement = AXUIElementCreateApplication(w.app.processIdentifier)
             AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         }
+    }
+
+    /// How long an AX activation gets to take effect before the fallback kicks in.
+    private static let activationCheckDelay: TimeInterval = 0.1
+
+    @MainActor
+    private func activate(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
+        Log.ax.debug("AX activation of \(w.appName, privacy: .public) ignored, activating via NSRunningApplication")
+        NSApp.yieldActivation(to: w.app)
+        w.app.activate()
+        // Activation brings the app's own front window forward; raise the requested one again.
+        perform(completion) { Self.raise(w) }
+    }
+
+    private static func raise(_ w: TaskWindow) {
+        AXUIElementPerformAction(w.element, kAXRaiseAction as CFString)
+        AXUIElementSetAttributeValue(w.element, kAXMainAttribute as CFString, kCFBooleanTrue)
     }
 
     func minimize(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
