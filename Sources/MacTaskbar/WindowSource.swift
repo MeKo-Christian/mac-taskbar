@@ -68,6 +68,9 @@ final class WindowSource: @unchecked Sendable {
     private var report: [String] = []
     private var lastReport: [pid_t: String] = [:]
 
+    /// Incremented per focus request, so a delayed activation check can tell it was superseded.
+    @MainActor private var focusRequest = 0
+
     init() {
         // Keep unresponsive apps from stalling the bar (global timeout, in seconds).
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.25)
@@ -107,16 +110,20 @@ final class WindowSource: @unchecked Sendable {
                 continue
             }
 
-            var subroles: [String] = []
+            var kinds: [String] = []
             var accepted = 0
             for element in elements {
                 let role: String? = copyAttribute(element, kAXRoleAttribute)
                 let subrole: String? = copyAttribute(element, kAXSubroleAttribute)
-                subroles.append(subrole ?? "nil")
+                let canMinimize = copyAttribute(element, kAXMinimizeButtonAttribute).flatMap { (button: AXUIElement) in
+                    copyAttribute(button, kAXEnabledAttribute) as Bool?
+                } ?? false
+                kinds.append("\(role ?? "nil")/\(subrole ?? "nil")\(canMinimize ? "+min" : "")")
                 guard let pos = copyPoint(element, kAXPositionAttribute),
                       let size = copySize(element, kAXSizeAttribute) else { continue }
                 let isMinimized: Bool = copyAttribute(element, kAXMinimizedAttribute) ?? false
-                guard Self.isTaskWindow(role: role, subrole: subrole, size: size, isMinimized: isMinimized)
+                guard Self.isTaskWindow(
+                    role: role, subrole: subrole, size: size, isMinimized: isMinimized, canMinimize: canMinimize)
                 else { continue }
                 accepted += 1
 
@@ -134,7 +141,7 @@ final class WindowSource: @unchecked Sendable {
                     isAppHidden: entry.isHidden
                 ))
             }
-            report[pid] = "\(name): \(elements.count) windows, \(accepted) shown, subroles \(subroles)"
+            report[pid] = "\(name): \(elements.count) windows, \(accepted) shown, role/subrole \(kinds)"
         }
 
         logChanges(report)
@@ -151,19 +158,50 @@ final class WindowSource: @unchecked Sendable {
     }
 
     /// Unhides the app (main thread), then raises and focuses the window on the AX queue.
+    /// Some activations are ignored, e.g. while the app is still unhiding; those fall back to
+    /// cooperative activation via `NSRunningApplication`.
     @MainActor
     func focus(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
+        focusRequest += 1
+        let request = focusRequest
+        let previous = NSWorkspace.shared.frontmostApplication
         if w.app.isHidden { w.app.unhide() }
-        perform(completion) {
+        perform({
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.activationCheckDelay) {
+                MainActor.assumeIsolated {
+                    // Fall back only if the AX activation had no effect: no newer request, and the
+                    // app that was frontmost before is still frontmost (otherwise the user moved on).
+                    let ignored = !w.app.isActive && request == self.focusRequest
+                        && NSWorkspace.shared.frontmostApplication == previous
+                    if ignored { self.activate(w, completion: completion) } else { completion() }
+                }
+            }
+        }) {
             if w.isMinimized {
                 AXUIElementSetAttributeValue(w.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
             }
-            AXUIElementPerformAction(w.element, kAXRaiseAction as CFString)
-            AXUIElementSetAttributeValue(w.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            Self.raise(w)
             // Bringing the app to front via AX works even though our panel never becomes active.
             let appElement = AXUIElementCreateApplication(w.app.processIdentifier)
             AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         }
+    }
+
+    /// How long an AX activation gets to take effect before the fallback kicks in.
+    private static let activationCheckDelay: TimeInterval = 0.1
+
+    @MainActor
+    private func activate(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
+        Log.ax.debug("AX activation of \(w.appName, privacy: .public) ignored, activating via NSRunningApplication")
+        NSApp.yieldActivation(to: w.app)
+        w.app.activate()
+        // Activation brings the app's own front window forward; raise the requested one again.
+        perform(completion) { Self.raise(w) }
+    }
+
+    private static func raise(_ w: TaskWindow) {
+        AXUIElementPerformAction(w.element, kAXRaiseAction as CFString)
+        AXUIElementSetAttributeValue(w.element, kAXMainAttribute as CFString, kCFBooleanTrue)
     }
 
     func minimize(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
@@ -188,10 +226,16 @@ final class WindowSource: @unchecked Sendable {
     }
 
     /// Standard windows, plus large role-only windows (Electron/Java apps often lack a proper subrole).
-    /// Minimized windows report subrole `AXDialog`, so they are accepted by role alone.
-    private static func isTaskWindow(role: String?, subrole: String?, size: CGSize, isMinimized: Bool) -> Bool {
+    /// Minimized windows report subrole `AXDialog`, so they are accepted by role alone. Document
+    /// windows can also report `AXDialog` (TextEdit, until the app is first activated); unlike real
+    /// dialogs such as About boxes they have an enabled minimize button. Floating panels
+    /// (`AXFloatingWindow`) and sheets (not in `kAXWindows`) are never listed.
+    private static func isTaskWindow(
+        role: String?, subrole: String?, size: CGSize, isMinimized: Bool, canMinimize: Bool
+    ) -> Bool {
         if subrole == kAXStandardWindowSubrole { return true }
         if isMinimized && role == kAXWindowRole { return true }
+        if subrole == kAXDialogSubrole && role == kAXWindowRole && canMinimize { return true }
         guard role == kAXWindowRole, subrole == nil || subrole == kAXUnknownSubrole else { return false }
         return size.width >= 100 && size.height >= 60
     }

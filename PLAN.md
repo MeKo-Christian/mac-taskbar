@@ -56,12 +56,30 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   dropped; now accepted by role + `kAXMinimizedAttribute`. Rest still open.
   (2026-09-28) — found: TextEdit document windows report subrole `AXDialog` even
   when not minimized, so they are dropped (also on the pre-change build).
+  (2026-09-29) — partial: the `AXDialog` document windows only occur until TextEdit is
+  first activated; accepted when their minimize button is enabled, which About boxes
+  and the Fonts panel lack (both stay hidden). `--dump` now reports role/subrole and
+  `+min` per window. Checked: floating panels (`AXFloatingWindow`) hidden, sheets are
+  not in `kAXWindows`, Finder desktop is `AXScrollArea` (hidden), Electron apps (VS
+  Code, Claude, Teams) listed, a launching app (Chess) appears ~1.6 s after launch
+  via observer retry, tabs share one AX window (documented in README). Remaining:
+  Java apps (none installed to verify); no app found with an empty AX title (apps
+  report "Untitled" themselves, the app-name fallback is untested); Chess briefly
+  shows an extra `AXUnknown` window while launching.
 - [ ] **Full-screen apps.** Hide the bar on full-screen Spaces; list full-screen
   windows and switch to their Space when clicked.
 - [ ] **Focus reliability.** Verify focusing works for minimized windows, hidden
   apps, windows on another screen, and apps that ignore `kAXFrontmostAttribute`;
   fall back to `NSRunningApplication.activate()` with `NSApp.yieldActivation(to:)`
   (cooperative activation, macOS 14+).
+  (2026-09-29) — partial: if the app isn't active 100 ms after the AX sequence,
+  `focus` yields activation, calls `activate()` and raises the window again. Verified
+  with the new `--focus <title>` debug mode: background, minimized, hidden and
+  hidden+minimized TextEdit windows get focus. Before the change, the hidden case left
+  Finder frontmost (AX activation arrives while the app is still unhiding). The
+  fallback fired only there. VS Code, Firefox, Teams, Claude and Bionic focus via AX
+  alone. Remaining: windows on another screen (only one display attached); no app
+  found that ignores `kAXFrontmostAttribute`.
 - [ ] **Screen handling.** Windows moving between screens, displays with
   different scale factors, display sleep/wake, clamshell mode, screens added or
   removed while running (already rebuilds bars — verify no leaks/flicker).
