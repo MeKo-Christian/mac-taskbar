@@ -117,10 +117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             refreshing = false
             observer.sync(with: context.apps.map(\.app))
-            apply(windows)
+            // A change arrived meanwhile, so this snapshot may already be stale: skip it rather than
+            // show outdated focus/minimized state while the follow-up enumeration runs.
             if dirty {
                 dirty = false
                 refresh()
+            } else {
+                apply(windows)
             }
         }
     }
