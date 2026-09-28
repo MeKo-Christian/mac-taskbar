@@ -132,7 +132,10 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 - [ ] Protocol around the AX layer so the UI can run against a fake source.
 - [ ] Performance budget: idle CPU < 0.5 %, no memory growth over 24 h;
   measure with Instruments.
-- [ ] Linting/formatting: `swift-format` (or SwiftLint) in `just lint`.
+- [x] Linting/formatting: `swift-format` (or SwiftLint) in `just lint`. (2026-09-29) —
+  `just lint` / `just format` / `just lint-fix` run the toolchain's bundled `swift format`
+  (no install needed); `.swift-format` keeps the existing style (4 spaces, 120 columns) and
+  disables `ReplaceForEachWithForLoop`. `just lint` failed before formatting, passes after.
 - [ ] CI: GitHub Actions on a macOS runner — build, test, lint.
 - [ ] Switch to Swift 6 language mode with strict concurrency once AX work is
   moved to an actor.
