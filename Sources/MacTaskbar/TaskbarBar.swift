@@ -29,6 +29,8 @@ final class TaskbarBar: NSObject {
     private let panel: NSPanel
     private let stack = NSStackView()
     private var signature: [String] = []
+    /// The button of each shown window, by `WindowKey.id`.
+    private var buttons: [String: TaskButton] = [:]
 
     var onClick: ((TaskWindow) -> Void)?
     var onClose: ((TaskWindow) -> Void)?
@@ -74,38 +76,79 @@ final class TaskbarBar: NSObject {
         panel.orderOut(nil)
     }
 
+    /// Updates the buttons in place: known windows keep their button, new ones fade in, closed
+    /// ones are removed. Rebuilding every button on each change flickers and loses hover state.
     func update(_ windows: [TaskWindow]) {
         let sig = windows.map {
             "\($0.key.id)|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)|\($0.isOnCurrentSpace)"
         }
         guard sig != signature else { return }
+        if signature == ["message"] { stack.arrangedSubviews.forEach { $0.removeFromSuperview() } }
         signature = sig
 
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        guard !windows.isEmpty else { return }
-
         // Shrink buttons evenly when the bar gets crowded.
-        let available = screenFrame.width - 2 * Self.inset - CGFloat(windows.count - 1) * Self.spacing
-        let width = min(maxButtonWidth, floor(available / CGFloat(windows.count)))
+        let count = CGFloat(max(windows.count, 1))
+        let available = screenFrame.width - 2 * Self.inset - (count - 1) * Self.spacing
+        let width = min(maxButtonWidth, floor(available / count))
 
-        for w in windows {
-            let button = TaskButton(task: w, width: width, height: buttonHeight)
-            button.target = self
-            button.action = #selector(buttonClicked(_:))
-
-            let menu = NSMenu()
-            let item = menu.addItem(withTitle: "Close Window", action: #selector(closeClicked(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = button
-            button.menu = menu
-
-            stack.addArrangedSubview(button)
+        let ids = Set(windows.map(\.key.id))
+        let gone = buttons.filter { !ids.contains($0.key) }
+        for (id, button) in gone {
+            button.removeFromSuperview()
+            buttons[id] = nil
         }
+        let kept = stack.arrangedSubviews.compactMap { $0 as? TaskButton }
+
+        var added: [TaskButton] = []
+        let ordered = windows.map { w -> TaskButton in
+            if let button = buttons[w.key.id] {
+                button.task = w
+                return button
+            }
+            let button = makeButton(w)
+            buttons[w.key.id] = button
+            added.append(button)
+            return button
+        }
+        let reordered = kept != ordered.filter { !added.contains($0) }
+        for (i, button) in ordered.enumerated()
+        where i >= stack.arrangedSubviews.count || stack.arrangedSubviews[i] !== button {
+            stack.insertArrangedSubview(button, at: i)
+        }
+
+        // Existing buttons slide to their new width and position; new ones fade in.
+        let animate = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !kept.isEmpty
+        added.forEach { $0.alphaValue = animate ? 0 : $0.targetAlpha }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animate ? 0.2 : 0
+            context.allowsImplicitAnimation = animate
+            for button in ordered {
+                button.widthConstraint.animator().constant = width
+                button.animator().alphaValue = button.targetAlpha
+            }
+            panel.contentView?.layoutSubtreeIfNeeded()
+        }
+        Log.app.debug(
+            "Bar update at x=\(Int(self.screenFrame.minX)): +\(added.count) −\(gone.count) =\(kept.count)\(reordered ? " reordered" : "", privacy: .public)"
+        )
+    }
+
+    private func makeButton(_ w: TaskWindow) -> TaskButton {
+        let button = TaskButton(task: w, width: maxButtonWidth, height: buttonHeight)
+        button.target = self
+        button.action = #selector(buttonClicked(_:))
+
+        let menu = NSMenu()
+        let item = menu.addItem(withTitle: "Close Window", action: #selector(closeClicked(_:)), keyEquivalent: "")
+        item.target = self
+        button.menu = menu
+        return button
     }
 
     func showMessage(_ text: String) {
         guard signature != ["message"] else { return }
         signature = ["message"]
+        buttons = [:]
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         stack.addArrangedSubview(NSTextField(labelWithString: text))
     }
@@ -115,46 +158,53 @@ final class TaskbarBar: NSObject {
     }
 
     @objc private func closeClicked(_ sender: NSMenuItem) {
-        guard let button = sender.representedObject as? TaskButton else { return }
+        // Found via the menu: a `representedObject` pointing back at the button would retain it.
+        guard let button = buttons.values.first(where: { $0.menu === sender.menu }) else { return }
         onClose?(button.task)
     }
 }
 
 final class TaskButton: NSButton {
-    let task: TaskWindow
+    var task: TaskWindow {
+        didSet { configure(oldApp: oldValue.app) }
+    }
+    private(set) var widthConstraint: NSLayoutConstraint!
+    /// Minimized windows and windows of hidden apps are dimmed.
+    var targetAlpha: CGFloat { task.isVisible ? 1 : 0.5 }
 
     init(task: TaskWindow, width: CGFloat, height: CGFloat) {
         self.task = task
         super.init(frame: .zero)
 
-        title = " " + task.displayTitle
-        toolTip =
-            (task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)")
-            + (task.isOnCurrentSpace ? "" : " (on another Space)")
-        if let icon = task.app.icon?.copy() as? NSImage {
-            icon.size = NSSize(width: 18, height: 18)
-            image = icon
-        }
         imagePosition = .imageLeading
         alignment = .left
         isBordered = false
         cell?.lineBreakMode = .byTruncatingTail
         cell?.truncatesLastVisibleLine = true
-
         wantsLayer = true
         layer?.cornerRadius = 5
+
+        translatesAutoresizingMaskIntoConstraints = false
+        widthConstraint = widthAnchor.constraint(equalToConstant: width)
+        NSLayoutConstraint.activate([widthConstraint, heightAnchor.constraint(equalToConstant: height)])
+        configure(oldApp: nil)
+    }
+
+    /// Applies `task` to the button; called again whenever the window's state changes.
+    private func configure(oldApp: NSRunningApplication?) {
+        title = " " + task.displayTitle
+        toolTip =
+            (task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)")
+            + (task.isOnCurrentSpace ? "" : " (on another Space)")
+        if oldApp != task.app, let icon = task.app.icon?.copy() as? NSImage {
+            icon.size = NSSize(width: 18, height: 18)
+            image = icon
+        }
         let tint: NSColor =
             task.isFocused
             ? .controlAccentColor.withAlphaComponent(0.35)
             : .labelColor.withAlphaComponent(0.08)
         layer?.backgroundColor = tint.cgColor
-        alphaValue = task.isVisible ? 1 : 0.5
-
-        translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: width),
-            heightAnchor.constraint(equalToConstant: height),
-        ])
     }
 
     required init?(coder: NSCoder) {
