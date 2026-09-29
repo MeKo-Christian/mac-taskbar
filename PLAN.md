@@ -54,6 +54,18 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   (a) show current Space only (document it), (b) combine
   `CGWindowListCopyWindowInfo` with private CGS Space APIs like AltTab does.
   Decide and make it a setting.
+  (2026-09-29) — partial: decided (b). `Spaces` reads each display's current Space and each
+  window's Spaces via SkyLight (`dlsym`, falls back to the current Space if missing). Windows
+  only on other Spaces are reached through their remembered AX element, else via
+  `_AXUIElementCreateWithRemoteToken` (100 ms budget per app; failures retried only when the
+  window moves). Setting "Windows from: All Spaces / Current Space" (default all). Checked
+  with a TextEdit window made full-screen (Space 723) while on Desktop 1: `--dump` lists it
+  `spaces=[723] (other Space)` via remote token; the bar shows `Windows per bar: [9]`, with
+  `defaults write … spaces current` `[8]`. `kAXWindows` also lists minimized windows of other
+  Spaces (they keep their Space); current mode drops them now. Space switches: one lookup per
+  app for helper windows that never resolve, then none over 3 round trips; idle CPU 0.19 s
+  per 60 s. Remaining: a regular second desktop (could not add one via Mission Control
+  automation), and the Settings picker itself (only tested via `defaults write`).
 - [ ] **Window filtering edge cases:** sheets/dialogs, utility/floating panels,
   untitled windows, Electron/Java apps with non-standard subroles, Finder
   desktop, windows of apps that are still launching, tabbed windows
@@ -72,8 +84,15 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   Java apps (none installed to verify); no app found with an empty AX title (apps
   report "Untitled" themselves, the app-name fallback is untested); Chess briefly
   shows an extra `AXUnknown` window while launching.
-- [ ] **Full-screen apps.** Hide the bar on full-screen Spaces; list full-screen
+- [x] **Full-screen apps.** Hide the bar on full-screen Spaces; list full-screen
   windows and switch to their Space when clicked.
+  (2026-09-29) — the panels (`.canJoinAllSpaces`, no `.fullScreenAuxiliary`) already stay off
+  full-screen Spaces: with TextEdit full-screen on the Dell, `CGWindowListCopyWindowInfo` shows
+  the Dell panel `onscreen=0` and the built-in one `onscreen=1`, both `1` back on the desktop.
+  Full-screen windows are listed through All Spaces (on the bar of their display, `[8, 1]`).
+  `--focus` (the click path) switches to their Space and back without extra code: Desktop →
+  full-screen window (Space 1 → 723), full-screen → minimized desktop window (→ 1), and with
+  TextEdit hidden; AX raise + `kAXFrontmostAttribute` alone already switches Space.
 - [ ] **Focus reliability.** Verify focusing works for minimized windows, hidden
   apps, windows on another screen, and apps that ignore `kAXFrontmostAttribute`;
   fall back to `NSRunningApplication.activate()` with `NSApp.yieldActivation(to:)`
@@ -143,6 +162,8 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   screen, which collects the windows of all screens; verified `Windows per bar: [5]` with
   two displays), position, height, button width and launch at login. Grouping and the
   Space option wait for those features.
+  (2026-09-29) — partial: Space option added ("Windows from", see All Spaces). Remaining:
+  grouping.
 - [x] Persist settings in `UserDefaults`. (2026-09-29) — values clamped on load; verified
   via `defaults write`: top/bottom position, height clamping, a disabled screen gets no bar.
 - [x] Launch at login via `SMAppService.mainApp.register()`. (2026-09-29) — verified with
