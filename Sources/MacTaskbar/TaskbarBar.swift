@@ -18,10 +18,12 @@ final class TaskbarBar: NSObject {
 
     init(screen: NSScreen) {
         screenFrame = screen.frame
-        let frame = CGRect(x: screen.frame.minX, y: screen.frame.minY,
-                           width: screen.frame.width, height: Self.height)
-        panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
+        let frame = CGRect(
+            x: screen.frame.minX, y: screen.frame.minY,
+            width: screen.frame.width, height: Self.height)
+        panel = NSPanel(
+            contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false)
         super.init()
 
         panel.level = .floating
@@ -59,7 +61,7 @@ final class TaskbarBar: NSObject {
     }
 
     func update(_ windows: [TaskWindow]) {
-        let sig = windows.map { "\(CFHash($0.element))|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)" }
+        let sig = windows.map { "\($0.key.id)|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)" }
         guard sig != signature else { return }
         signature = sig
 
@@ -123,7 +125,8 @@ final class TaskButton: NSButton {
 
         wantsLayer = true
         layer?.cornerRadius = 5
-        let tint: NSColor = task.isFocused
+        let tint: NSColor =
+            task.isFocused
             ? .controlAccentColor.withAlphaComponent(0.35)
             : .labelColor.withAlphaComponent(0.08)
         layer?.backgroundColor = tint.cgColor

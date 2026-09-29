@@ -41,9 +41,15 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   snapshots back; one enumeration in flight at a time, later refreshes coalesce.
   Verified with `sample` while TextEdit was stopped (`kill -STOP`): AX calls on the
   main thread 1391 samples before → 0 after (1375 now on the AX queue).
-- [ ] **Stable window identity.** `CFEqual` on `AXUIElement` works but is opaque.
+- [x] **Stable window identity.** `CFEqual` on `AXUIElement` works but is opaque.
   Evaluate `_AXUIElementGetWindow` (private, used by AltTab/Rectangle) to get the
   `CGWindowID`; needed anyway for previews and cross-Space tracking.
+  (2026-09-29) — adopted: `WindowKey` looks up the `CGWindowID` via `_AXUIElementGetWindow`
+  and compares by it, falling back to `CFEqual` when no ID is reported; the bar's change
+  signature uses the same identity. `--dump` prints `id=` per window and cross-checks against
+  `CGWindowListCopyWindowInfo`: 8/8 windows (Firefox, Teams, VS Code, System Settings,
+  TextEdit) have an ID with matching owner PID, also while minimized; IDs are identical
+  across separate enumerations. The `CFEqual` fallback is untested (no window without ID found).
 - [ ] **All Spaces.** AX only sees windows on the current Space. Options:
   (a) show current Space only (document it), (b) combine
   `CGWindowListCopyWindowInfo` with private CGS Space APIs like AltTab does.
@@ -126,7 +132,10 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 - [ ] Protocol around the AX layer so the UI can run against a fake source.
 - [ ] Performance budget: idle CPU < 0.5 %, no memory growth over 24 h;
   measure with Instruments.
-- [ ] Linting/formatting: `swift-format` (or SwiftLint) in `just lint`.
+- [x] Linting/formatting: `swift-format` (or SwiftLint) in `just lint`. (2026-09-29) —
+  `just lint` / `just format` / `just lint-fix` run the toolchain's bundled `swift format`
+  (no install needed); `.swift-format` keeps the existing style (4 spaces, 120 columns) and
+  disables `ReplaceForEachWithForLoop`. `just lint` failed before formatting, passes after.
 - [ ] CI: GitHub Actions on a macOS runner — build, test, lint.
 - [ ] Switch to Swift 6 language mode with strict concurrency once AX work is
   moved to an actor.
