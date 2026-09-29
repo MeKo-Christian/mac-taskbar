@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsChange: AnyCancellable?
     private lazy var settingsWindow = SettingsWindow(settings: settings)
     private var statusItem: StatusItem?
+    private let onboarding = OnboardingWindow()
     private var bars: [TaskbarBar] = []
     private var timer: Timer?
     private var lastTrusted: Bool?
@@ -103,10 +104,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.app.info("Started from \(Bundle.main.bundlePath, privacy: .public)")
-        // Shows the system prompt pointing to Privacy & Security → Accessibility.
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-
         statusItem = StatusItem { [weak self] in self?.settingsWindow.show() }
         rebuildBars()
         // `objectWillChange` fires before the new value is stored; rebuild on the next turn.
@@ -162,6 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if trusted != lastTrusted {
             Log.app.info("AXIsProcessTrusted = \(trusted)")
             lastTrusted = trusted
+            // Also catches a permission revoked while running (within one reconciliation poll).
+            if trusted { onboarding.close() } else { onboarding.show() }
         }
         guard trusted else {
             bars.forEach {
