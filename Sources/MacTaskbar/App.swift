@@ -64,12 +64,15 @@ enum MacTaskbarApp {
         print("Launch at login: \(LoginItem.describe(LoginItem.status))")
     }
 
-    /// Focuses the first window whose title contains `text`, as a click on its button would, then
-    /// prints what ended up focused. For testing focus without clicking.
+    /// Focuses the window titled `text` (else the first whose title contains it), as a click on its
+    /// button would, then prints what ended up focused. For testing focus without clicking.
     private static func focus(matching text: String) {
         let source = WindowSource()
         let (windows, _) = source.windowsAndReport(.current())
-        guard let w = windows.first(where: { $0.displayTitle.localizedCaseInsensitiveContains(text) }) else {
+        guard
+            let w = windows.first(where: { $0.displayTitle == text })
+                ?? windows.first(where: { $0.displayTitle.localizedCaseInsensitiveContains(text) })
+        else {
             print("No window matching \"\(text)\"")
             return
         }

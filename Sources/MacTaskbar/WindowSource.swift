@@ -197,7 +197,7 @@ final class WindowSource: @unchecked Sendable {
 
     /// Unhides the app (main thread), then raises and focuses the window on the AX queue.
     /// Some activations are ignored, e.g. while the app is still unhiding; those fall back to
-    /// cooperative activation via `NSRunningApplication`.
+    /// cooperative activation via `NSRunningApplication`. Successful ones raise the window again.
     @MainActor
     func focus(_ w: TaskWindow, completion: @escaping @MainActor () -> Void) {
         focusRequest += 1
@@ -207,12 +207,17 @@ final class WindowSource: @unchecked Sendable {
         let checkActivation: @MainActor () -> Void = {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.activationCheckDelay) {
                 MainActor.assumeIsolated {
-                    // Fall back only if the AX activation had no effect: no newer request, and the
-                    // app that was frontmost before is still frontmost (otherwise the user moved on).
-                    let ignored =
-                        !w.app.isActive && request == self.focusRequest
-                        && NSWorkspace.shared.frontmostApplication == previous
-                    if ignored { self.activate(w, completion: completion) } else { completion() }
+                    guard request == self.focusRequest else { return completion() }
+                    if w.app.isActive {
+                        // Activation lands asynchronously and brings the app's key window forward,
+                        // which wins over the raise when that window is on another display.
+                        self.perform(completion) { Self.raise(w) }
+                    } else if NSWorkspace.shared.frontmostApplication == previous {
+                        // The AX activation had no effect (and the user didn't move on meanwhile).
+                        self.activate(w, completion: completion)
+                    } else {
+                        completion()
+                    }
                 }
             }
         }
