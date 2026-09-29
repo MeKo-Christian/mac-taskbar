@@ -86,9 +86,26 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   fallback fired only there. VS Code, Firefox, Teams, Claude and Bionic focus via AX
   alone. Remaining: windows on another screen (only one display attached); no app
   found that ignores `kAXFrontmostAttribute`.
+  (2026-09-29) — partial: windows on another screen lost focus to the app's previous key
+  window: activation lands asynchronously and brings that window forward. Raising only
+  before activation failed 3/3 and raising again afterwards passed 3/3 (AX probe). `focus`
+  now raises again at the 100 ms activation check. With `--focus` (now preferring an
+  exact title match), TextEdit on Dell (1×) + built-in (2×): built-in window from Finder
+  5/5 (before: 0/8), minimized and hidden+minimized OK, and the other direction 3/3. VS
+  Code windows on the same screen are unchanged. Remaining: no app found that ignores
+  `kAXFrontmostAttribute`.
 - [ ] **Screen handling.** Windows moving between screens, displays with
   different scale factors, display sleep/wake, clamshell mode, screens added or
   removed while running (already rebuilds bars — verify no leaks/flicker).
+  (2026-09-29) — partial: screen-parameter changes that leave every bar's frame alone (Dock
+  auto-hide toggled 10×) recreated all panels; now `rebuildBars` compares
+  `TaskbarBar.Layout`s and keeps the bars. The log shows `Screens or settings changed` per
+  toggle and no `Bars rebuilt`, and `heap` counts 2 `NSPanel`/2 `TaskbarBar` before and
+  after. Toggling "Menu bar display only" still rebuilds (`Bars rebuilt: 1 on 2 screens`,
+  heap 1/1, the old panel freed). Moving a TextEdit window Dell ↔ built-in (1× / 2×) moves
+  its button (`Windows per bar` `[5, 2]` → `[6, 1]` → `[5, 2]`). Remaining, needs someone
+  at the Mac: display sleep/wake (locks the screen immediately), clamshell mode, unplugging
+  and replugging a display.
 
 ## Phase 2 — UX
 
@@ -112,6 +129,8 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 - [ ] **Dock interplay.** The Dock's reveal zone overlaps the bar; check behaviour
   with Dock at bottom/left/right and auto-hide on/off.
 - [ ] **Accessibility:** VoiceOver labels for buttons, keyboard navigation.
+  (2026-09-29) — found: the Settings window's toggles expose no AX title (the label is a
+  sibling `AXStaticText`), so they can only be addressed by position.
 - [ ] **Localization:** English + German.
 
 ## Phase 3 — Settings & lifecycle
