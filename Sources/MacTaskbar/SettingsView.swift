@@ -75,6 +75,11 @@ struct SettingsView: View {
                     Text("Bottom").tag(Settings.Position.bottom)
                     Text("Top").tag(Settings.Position.top)
                 }
+                Picker("Windows from", selection: $settings.spaces) {
+                    Text("All Spaces").tag(Settings.SpaceMode.all)
+                    Text("Current Space").tag(Settings.SpaceMode.current)
+                }
+                .disabled(!Spaces.isAvailable)
                 LabeledContent("Height") {
                     Slider(value: $settings.barHeight, in: Settings.heightRange, step: 2)
                     Text("\(Int(settings.barHeight)) pt").monospacedDigit().frame(width: 48, alignment: .trailing)

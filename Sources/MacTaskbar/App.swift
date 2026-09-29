@@ -29,14 +29,17 @@ enum MacTaskbarApp {
     /// Accessibility check applies to the terminal app, not to MacTaskbar.app.
     private static func dump() {
         print("AXIsProcessTrusted: \(AXIsProcessTrusted())")
-        let (windows, report) = WindowSource().windowsAndReport(.current())
+        let context = EnumerationContext.current(allSpaces: true)
+        print("Spaces: current \(context.spaces.current.sorted()) of \(context.spaces.all.sorted())")
+        let (windows, report) = WindowSource().windowsAndReport(context)
         print("\nPer app:")
         report.forEach { print("  \($0)") }
         print("\nShown windows (\(windows.count)):")
         for w in windows {
             print(
                 "  [\(w.appName)] \(w.displayTitle) id=\(w.windowID.map { "\($0)" } ?? "nil") frame=\(w.frame) "
-                    + "minimized=\(w.isMinimized) focused=\(w.isFocused)")
+                    + "minimized=\(w.isMinimized) focused=\(w.isFocused) spaces=\(w.spaces.sorted())"
+                    + (w.isOnCurrentSpace ? "" : " (other Space)"))
         }
 
         // Cross-check the private window IDs against the window server (needs no Screen Recording).
@@ -68,7 +71,7 @@ enum MacTaskbarApp {
     /// button would, then prints what ended up focused. For testing focus without clicking.
     private static func focus(matching text: String) {
         let source = WindowSource()
-        let (windows, _) = source.windowsAndReport(.current())
+        let (windows, _) = source.windowsAndReport(.current(allSpaces: true))
         guard
             let w = windows.first(where: { $0.displayTitle == text })
                 ?? windows.first(where: { $0.displayTitle.localizedCaseInsensitiveContains(text) })
@@ -81,7 +84,7 @@ enum MacTaskbarApp {
         source.focus(w) { done = true }
         while !done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05)) }
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
-        let (after, _) = source.windowsAndReport(.current())
+        let (after, _) = source.windowsAndReport(.current(allSpaces: true))
         let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
         let focused = after.first(where: \.isFocused).map { "[\($0.appName)] \($0.displayTitle)" } ?? "none"
         print("Frontmost app: \(front)\nFocused window: \(focused)")
@@ -186,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         refreshing = true
-        let context = EnumerationContext.current()
+        let context = EnumerationContext.current(allSpaces: settings.spaces == .all)
         source.windows(context) { [weak self] windows in
             guard let self else { return }
             refreshing = false

@@ -7,6 +7,8 @@ bottom of every screen with one button per open window.
 - Click the focused window to minimize it.
 - Right-click a window button → *Close Window*; right-click the empty bar → *Quit*.
 - Each screen lists the windows whose center lies on that screen.
+- Windows on other Spaces, full-screen apps included, are listed too; clicking one switches to
+  its Space. Settings → *Windows from: Current Space* limits the bar to the Spaces on screen.
 
 ## Build & run
 
@@ -42,7 +44,10 @@ build, and macOS silently stops applying the old grant.
 
 ## Limitations (PoC)
 
-- Windows are read via the Accessibility API, which only sees the current Space.
+- The Accessibility API only sees the current Space. Windows on other Spaces are found with
+  private macOS functions (SkyLight, remote AX tokens), as AltTab does; if a macOS update removes
+  them, the bar falls back to the current Space.
+- The bar is not shown on full-screen Spaces.
 - macOS has no API to reserve screen space, so maximized windows extend underneath the bar.
 - Tabs are not listed separately: Safari, Finder, Terminal and browser tabs share one
   window, so they get one button.

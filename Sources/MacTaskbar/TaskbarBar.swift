@@ -75,7 +75,9 @@ final class TaskbarBar: NSObject {
     }
 
     func update(_ windows: [TaskWindow]) {
-        let sig = windows.map { "\($0.key.id)|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)" }
+        let sig = windows.map {
+            "\($0.key.id)|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)|\($0.isOnCurrentSpace)"
+        }
         guard sig != signature else { return }
         signature = sig
 
@@ -126,7 +128,9 @@ final class TaskButton: NSButton {
         super.init(frame: .zero)
 
         title = " " + task.displayTitle
-        toolTip = task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)"
+        toolTip =
+            (task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)")
+            + (task.isOnCurrentSpace ? "" : " (on another Space)")
         if let icon = task.app.icon?.copy() as? NSImage {
             icon.size = NSSize(width: 18, height: 18)
             image = icon

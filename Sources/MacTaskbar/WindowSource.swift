@@ -6,6 +6,11 @@ import ApplicationServices
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+/// Private, as used by AltTab: an AX element from a remote token (pid + element ID). The only way
+/// to reach windows on other Spaces, which `kAXWindows` leaves out.
+@_silgen_name("_AXUIElementCreateWithRemoteToken")
+private func _AXUIElementCreateWithRemoteToken(_ token: CFData) -> Unmanaged<AXUIElement>?
+
 /// Identity of a window across refreshes: its `CGWindowID` when the window server reports one
 /// (also needed for previews and cross-Space tracking), otherwise the AX element itself.
 struct WindowKey: Hashable {
@@ -52,6 +57,9 @@ struct TaskWindow: @unchecked Sendable {
     let isMinimized: Bool
     let isFocused: Bool
     let isAppHidden: Bool
+    /// Empty when the Space functions are unavailable or the window server reports none.
+    let spaces: Set<UInt64>
+    let isOnCurrentSpace: Bool
 
     var element: AXUIElement { key.element }
     var windowID: CGWindowID? { key.windowID }
@@ -72,24 +80,30 @@ struct EnumerationContext: @unchecked Sendable {
     let apps: [App]
     let frontmostPid: pid_t?
     let primaryHeight: CGFloat
+    let spaces: Spaces.Snapshot
+    /// List windows on every Space, not only the ones the displays currently show.
+    let allSpaces: Bool
 
     /// Regular apps except ourselves.
     @MainActor
-    static func current() -> EnumerationContext {
+    static func current(allSpaces: Bool) -> EnumerationContext {
         let apps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.processIdentifier != getpid() }
             .map { App(app: $0, isHidden: $0.isHidden) }
         return EnumerationContext(
             apps: apps,
             frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
-            primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
+            primaryHeight: NSScreen.screens.first?.frame.height ?? 0,
+            spaces: Spaces.snapshot(),
+            allSpaces: allSpaces && Spaces.isAvailable)
     }
 }
 
 /// Enumerates and manipulates windows via the Accessibility API.
 /// AX calls block up to the messaging timeout per unresponsive app, so all of them run on a
 /// private serial queue; results are delivered to the main thread as immutable snapshots.
-/// Note: AX only reports windows on the current Space.
+/// `kAXWindows` only reports windows on the current Space (plus minimized ones); windows on other
+/// Spaces come from the window server and are reached via remembered or remote-token elements.
 final class WindowSource: @unchecked Sendable {
     private let queue = DispatchQueue(label: "io.github.cwbudde.mactaskbar.ax", qos: .userInitiated)
 
@@ -97,6 +111,12 @@ final class WindowSource: @unchecked Sendable {
     /// First-seen order, so buttons don't jump around when focus changes.
     private var order: [WindowKey: Int] = [:]
     private var nextIndex = 0
+    /// Elements of windows seen before, kept while the window exists: they stay valid when the
+    /// window leaves the current Space, so it needs no remote-token lookup then.
+    private var known: [CGWindowID: WindowKey] = [:]
+    /// Windows on other Spaces whose remote-token lookup failed, with their Spaces at the time;
+    /// retried only once they move, so the reconciliation poll doesn't repeat the lookup.
+    private var unresolved: [CGWindowID: Set<UInt64>] = [:]
     /// One line per app describing the last enumeration; used for logging and `--dump`.
     private var report: [String] = []
     private var lastReport: [pid_t: String] = [:]
@@ -129,8 +149,10 @@ final class WindowSource: @unchecked Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         let focused = focusedWindow(ctx.frontmostPid)
         let primaryHeight = ctx.primaryHeight
+        let (offSpace, existing) = ctx.allSpaces ? offSpaceWindows(ctx) : ([:], nil)
         var result: [TaskWindow] = []
         var report: [pid_t: String] = [:]
+        var seen: Set<CGWindowID> = []
 
         for entry in ctx.apps {
             let app = entry.app
@@ -142,10 +164,14 @@ final class WindowSource: @unchecked Sendable {
                 report[pid] = "\(name): kAXWindows failed: \(describe(error))"
                 continue
             }
+            let listed = elements.map(WindowKey.init)
+            let (others, resolved) = offSpaceKeys(
+                pid, offSpace[pid, default: [:]], listed: Set(listed.compactMap(\.windowID)))
 
             var kinds: [String] = []
             var accepted = 0
-            for element in elements {
+            for key in listed + others {
+                let element = key.element
                 let role: String? = copyAttribute(element, kAXRoleAttribute)
                 let subrole: String? = copyAttribute(element, kAXSubroleAttribute)
                 let canMinimize =
@@ -161,13 +187,20 @@ final class WindowSource: @unchecked Sendable {
                     Self.isTaskWindow(
                         role: role, subrole: subrole, size: size, isMinimized: isMinimized, canMinimize: canMinimize)
                 else { continue }
+                let spaces = key.windowID.map(Spaces.spaces(of:)) ?? []
+                // A window on no known Space can't be placed; treat it as on the current one.
+                let isOnCurrentSpace = spaces.isEmpty || !spaces.isDisjoint(with: ctx.spaces.current)
+                guard isOnCurrentSpace || ctx.allSpaces else { continue }
                 accepted += 1
+                if let id = key.windowID {
+                    known[id] = key
+                    seen.insert(id)
+                }
 
                 // AX uses top-left origin with y pointing down; convert to Cocoa coordinates.
                 let frame = CGRect(
                     x: pos.x, y: primaryHeight - pos.y - size.height,
                     width: size.width, height: size.height)
-                let key = WindowKey(element: element)
                 result.append(
                     TaskWindow(
                         key: key,
@@ -176,11 +209,20 @@ final class WindowSource: @unchecked Sendable {
                         frame: frame,
                         isMinimized: isMinimized,
                         isFocused: focused.map { CFEqual($0, element) } ?? false,
-                        isAppHidden: entry.isHidden
+                        isAppHidden: entry.isHidden,
+                        spaces: spaces,
+                        isOnCurrentSpace: isOnCurrentSpace
                     ))
             }
-            report[pid] = "\(name): \(elements.count) windows, \(accepted) shown, role/subrole \(kinds)"
+            let fromOthers =
+                others.isEmpty ? "" : " + \(others.count) on other Spaces (\(resolved) via remote token)"
+            report[pid] = "\(name): \(elements.count) windows\(fromOthers), \(accepted) shown, role/subrole \(kinds)"
         }
+
+        // Forget closed windows only: a window keeps its element or failed lookup while the user
+        // switches Spaces. Without the window list (current Space only), keep the shown ones.
+        known = known.filter { existing?.contains($0.key) ?? seen.contains($0.key) }
+        unresolved = unresolved.filter { existing?.contains($0.key) ?? false }
 
         logChanges(report)
         self.report = report.values.sorted()
@@ -194,6 +236,83 @@ final class WindowSource: @unchecked Sendable {
         }
         return result.sorted { order[$0.key]! < order[$1.key]! }
     }
+
+    /// Windows of the given apps that are only on Spaces the displays don't show, with those Spaces,
+    /// by pid, plus the IDs of all their windows. Helper windows at the normal level are on no Space
+    /// and drop out here.
+    private func offSpaceWindows(
+        _ ctx: EnumerationContext
+    ) -> (windows: [pid_t: [CGWindowID: Set<UInt64>]], existing: Set<CGWindowID>) {
+        let pids = Set(ctx.apps.map(\.app.processIdentifier))
+        let info = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
+        var result: [pid_t: [CGWindowID: Set<UInt64>]] = [:]
+        var existing: Set<CGWindowID> = []
+        for entry in info {
+            guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t, pids.contains(pid),
+                let id = entry[kCGWindowNumber as String] as? CGWindowID
+            else { continue }
+            existing.insert(id)
+            guard entry[kCGWindowLayer as String] as? Int == 0 else { continue }
+            let spaces = Spaces.spaces(of: id)
+            guard !spaces.isDisjoint(with: ctx.spaces.all), spaces.isDisjoint(with: ctx.spaces.current) else {
+                continue
+            }
+            result[pid, default: [:]][id] = spaces
+        }
+        return (result, existing)
+    }
+
+    /// Elements for an app's windows on other Spaces that `kAXWindows` left out: remembered ones,
+    /// else looked up via remote tokens. Also returns how many needed that lookup.
+    private func offSpaceKeys(
+        _ pid: pid_t, _ windows: [CGWindowID: Set<UInt64>], listed: Set<CGWindowID>
+    ) -> (keys: [WindowKey], resolved: Int) {
+        let missing = windows.filter { !listed.contains($0.key) }
+        let unknown = missing.filter { known[$0.key] == nil && unresolved[$0.key] != $0.value }
+        var resolved = 0
+        if !unknown.isEmpty {
+            let found = resolveRemote(pid, Set(unknown.keys))
+            for (id, spaces) in unknown {
+                if let key = found[id] { known[id] = key } else { unresolved[id] = spaces }
+            }
+            resolved = found.count
+        }
+        return (missing.keys.sorted().compactMap { known[$0] }, resolved)
+    }
+
+    /// Tries remote tokens with one element ID after another until all `ids` are found, as AltTab
+    /// does. Bounded in time, so an app with many elements can't stall the enumeration for long.
+    private func resolveRemote(_ pid: pid_t, _ ids: Set<CGWindowID>) -> [CGWindowID: WindowKey] {
+        let start = DispatchTime.now()
+        let deadline = start + Self.remoteLookupBudget
+        // Token layout: pid (4 bytes), 0 (4), "coco" (4), element ID (8).
+        var token = Data(count: 20)
+        token.withUnsafeMutableBytes {
+            $0.storeBytes(of: pid, toByteOffset: 0, as: pid_t.self)
+            $0.storeBytes(of: 0x636f_636f, toByteOffset: 8, as: UInt32.self)
+        }
+        var found: [CGWindowID: WindowKey] = [:]
+        var elementID: UInt64 = 0
+        while found.count < ids.count, elementID < Self.maxRemoteElementID, DispatchTime.now() < deadline {
+            token.withUnsafeMutableBytes { $0.storeBytes(of: elementID, toByteOffset: 12, as: UInt64.self) }
+            elementID += 1
+            guard let element = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue() else {
+                continue
+            }
+            let key = WindowKey(element: element)
+            // A window's buttons and other children report its window ID too.
+            if let id = key.windowID, ids.contains(id), copyAttribute(element, kAXRoleAttribute) == kAXWindowRole {
+                found[id] = key
+            }
+        }
+        let ms = (DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
+        Log.ax.debug(
+            "Remote-token lookup for pid \(pid): \(found.count)/\(ids.count) windows, \(elementID) ids, \(ms) ms")
+        return found
+    }
+
+    private static let remoteLookupBudget = DispatchTimeInterval.milliseconds(100)
+    private static let maxRemoteElementID: UInt64 = 10_000
 
     /// Unhides the app (main thread), then raises and focuses the window on the AX queue.
     /// Some activations are ignored, e.g. while the app is still unhiding; those fall back to
