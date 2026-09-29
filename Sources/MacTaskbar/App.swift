@@ -141,20 +141,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func screensChanged() {
+        Log.app.debug("Screens or settings changed")
         rebuildBars()
         refresh()
     }
 
     private func rebuildBars() {
+        let layouts = NSScreen.screens.filter(settings.isEnabled).map {
+            TaskbarBar.Layout(screen: $0, settings: settings)
+        }
+        // Screen parameters also change when nothing a bar depends on did (Dock, display wake);
+        // keep the bars then, recreating them flickers.
+        guard layouts != bars.map(\.layout) else { return }
         bars.forEach { $0.close() }
-        bars = NSScreen.screens.filter(settings.isEnabled).map { screen in
-            let bar = TaskbarBar(screen: screen, settings: settings)
+        bars = layouts.map { layout in
+            let bar = TaskbarBar(layout: layout)
             bar.onClick = { [weak self] w in self?.clicked(w) }
             bar.onClose = { [weak self] w in
                 self?.source.close(w) { self?.refreshSoon() }
             }
             return bar
         }
+        Log.app.info("Bars rebuilt: \(self.bars.count) on \(NSScreen.screens.count) screens")
     }
 
     @objc private func refresh() {

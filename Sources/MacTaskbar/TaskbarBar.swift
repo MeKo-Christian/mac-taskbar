@@ -6,9 +6,26 @@ final class TaskbarBar: NSObject {
     private static let spacing: CGFloat = 4
     private static let inset: CGFloat = 6
 
-    let screenFrame: CGRect
-    private let maxButtonWidth: CGFloat
-    private let buttonHeight: CGFloat
+    /// Everything a bar is built from. Bars are only recreated when it changes.
+    struct Layout: Equatable {
+        let screenFrame: CGRect
+        let frame: CGRect
+        let maxButtonWidth: CGFloat
+
+        @MainActor init(screen: NSScreen, settings: Settings) {
+            screenFrame = screen.frame
+            maxButtonWidth = settings.maxButtonWidth
+            let height = settings.barHeight
+            // At the top, sit below the menu bar (the top of the visible frame).
+            let y = settings.position == .top ? screen.visibleFrame.maxY - height : screen.frame.minY
+            frame = CGRect(x: screen.frame.minX, y: y, width: screen.frame.width, height: height)
+        }
+    }
+
+    let layout: Layout
+    var screenFrame: CGRect { layout.screenFrame }
+    private var maxButtonWidth: CGFloat { layout.maxButtonWidth }
+    private var buttonHeight: CGFloat { layout.frame.height - 6 }
     private let panel: NSPanel
     private let stack = NSStackView()
     private var signature: [String] = []
@@ -16,16 +33,10 @@ final class TaskbarBar: NSObject {
     var onClick: ((TaskWindow) -> Void)?
     var onClose: ((TaskWindow) -> Void)?
 
-    init(screen: NSScreen, settings: Settings) {
-        screenFrame = screen.frame
-        maxButtonWidth = settings.maxButtonWidth
-        let height = settings.barHeight
-        buttonHeight = height - 6
-        // At the top, sit below the menu bar (the top of the visible frame).
-        let y = settings.position == .top ? screen.visibleFrame.maxY - height : screen.frame.minY
-        let frame = CGRect(x: screen.frame.minX, y: y, width: screen.frame.width, height: height)
+    init(layout: Layout) {
+        self.layout = layout
         panel = NSPanel(
-            contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+            contentRect: layout.frame, styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
         super.init()
 
