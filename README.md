@@ -6,6 +6,8 @@ bottom of every screen with one button per open window.
 - Click a window to focus it (also restores minimized windows and unhides hidden apps).
 - Click the focused window to minimize it.
 - Right-click a window button → *Close Window*; right-click the empty bar → *Quit*.
+- Buttons show the app's Dock badge (e.g. unread count), highlight on hover and press, and
+  follow light/dark mode and *Increase contrast*.
 - Each screen lists the windows whose center lies on that screen.
 - Windows on other Spaces, full-screen apps included, are listed too; clicking one switches to
   its Space. Settings → *Windows from: Current Space* limits the bar to the Spaces on screen.

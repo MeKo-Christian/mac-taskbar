@@ -60,6 +60,8 @@ struct TaskWindow: @unchecked Sendable {
     /// Empty when the Space functions are unavailable or the window server reports none.
     let spaces: Set<UInt64>
     let isOnCurrentSpace: Bool
+    /// The app's Dock badge, e.g. an unread count.
+    let badge: String?
 
     var element: AXUIElement { key.element }
     var windowID: CGWindowID? { key.windowID }
@@ -79,6 +81,7 @@ struct EnumerationContext: @unchecked Sendable {
 
     let apps: [App]
     let frontmostPid: pid_t?
+    let dockPid: pid_t?
     let primaryHeight: CGFloat
     let spaces: Spaces.Snapshot
     /// List windows on every Space, not only the ones the displays currently show.
@@ -93,6 +96,8 @@ struct EnumerationContext: @unchecked Sendable {
         return EnumerationContext(
             apps: apps,
             frontmostPid: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            dockPid: NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?
+                .processIdentifier,
             primaryHeight: NSScreen.screens.first?.frame.height ?? 0,
             spaces: Spaces.snapshot(),
             allSpaces: allSpaces && Spaces.isAvailable)
@@ -148,6 +153,7 @@ final class WindowSource: @unchecked Sendable {
     private func enumerate(_ ctx: EnumerationContext) -> [TaskWindow] {
         dispatchPrecondition(condition: .onQueue(queue))
         let focused = focusedWindow(ctx.frontmostPid)
+        let badges = dockBadges(ctx.dockPid)
         let primaryHeight = ctx.primaryHeight
         let (offSpace, existing) = ctx.allSpaces ? offSpaceWindows(ctx) : ([:], nil)
         var result: [TaskWindow] = []
@@ -211,7 +217,8 @@ final class WindowSource: @unchecked Sendable {
                         isFocused: focused.map { CFEqual($0, element) } ?? false,
                         isAppHidden: entry.isHidden,
                         spaces: spaces,
-                        isOnCurrentSpace: isOnCurrentSpace
+                        isOnCurrentSpace: isOnCurrentSpace,
+                        badge: app.bundleURL.flatMap { badges[$0.resolvingSymlinksInPath().path] }
                     ))
             }
             let fromOthers =
@@ -410,6 +417,24 @@ final class WindowSource: @unchecked Sendable {
             Log.ax.debug("\(line, privacy: .public)")
         }
         lastReport = report
+    }
+
+    /// Badges of the Dock's app items, by app bundle path. Badge changes send no notification;
+    /// the reconciliation poll picks them up.
+    private func dockBadges(_ dockPid: pid_t?) -> [String: String] {
+        guard let dockPid,
+            let lists: [AXUIElement] = copyAttribute(AXUIElementCreateApplication(dockPid), kAXChildrenAttribute)
+        else { return [:] }
+        var badges: [String: String] = [:]
+        for list in lists {
+            for item in copyAttribute(list, kAXChildrenAttribute) ?? [AXUIElement]() {
+                guard let label: String = copyAttribute(item, "AXStatusLabel"), !label.isEmpty,
+                    let url: NSURL = copyAttribute(item, kAXURLAttribute), let path = url.resolvingSymlinksInPath?.path
+                else { continue }
+                badges[path] = label
+            }
+        }
+        return badges
     }
 
     private func focusedWindow(_ pid: pid_t?) -> AXUIElement? {

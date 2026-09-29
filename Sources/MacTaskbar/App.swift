@@ -15,6 +15,10 @@ enum MacTaskbarApp {
             focus(matching: CommandLine.arguments[i + 1])
             return
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--render-buttons"), i + 1 < CommandLine.arguments.count {
+            renderButtons(to: URL(fileURLWithPath: CommandLine.arguments[i + 1]))
+            return
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--login-item") {
             loginItem(i + 1 < CommandLine.arguments.count ? CommandLine.arguments[i + 1] : "status")
             return
@@ -39,7 +43,7 @@ enum MacTaskbarApp {
             print(
                 "  [\(w.appName)] \(w.displayTitle) id=\(w.windowID.map { "\($0)" } ?? "nil") frame=\(w.frame) "
                     + "minimized=\(w.isMinimized) focused=\(w.isFocused) spaces=\(w.spaces.sorted())"
-                    + (w.isOnCurrentSpace ? "" : " (other Space)"))
+                    + (w.isOnCurrentSpace ? "" : " (other Space)") + (w.badge.map { " badge=\($0)" } ?? ""))
         }
 
         // Cross-check the private window IDs against the window server (needs no Screen Recording).
@@ -54,6 +58,64 @@ enum MacTaskbarApp {
         }
         let matching = windows.filter { w in w.windowID.flatMap { owners[$0] } == w.app.processIdentifier }
         print("\nWindow IDs matching CGWindowList (id + owner pid): \(matching.count)/\(windows.count)")
+    }
+
+    /// Renders a button in every state, light and dark, to `buttons-<appearance>.png` in `dir`, to
+    /// check the styles without Screen Recording permission.
+    private static func renderButtons(to dir: URL) {
+        let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first
+        func sample(_ title: String, minimized: Bool = false, focused: Bool = false, badge: String? = nil)
+            -> TaskWindow
+        {
+            TaskWindow(
+                key: WindowKey(element: AXUIElementCreateApplication(getpid())), app: finder ?? .current,
+                title: title, frame: .zero, isMinimized: minimized, isFocused: focused, isAppHidden: false,
+                spaces: [], isOnCurrentSpace: true, badge: badge)
+        }
+        let states: [(TaskWindow, (TaskButton) -> Void)] = [
+            (sample("Normal"), { _ in }),
+            (sample("Hover"), { $0.isHovered = true }),
+            (sample("Pressed"), { $0.isPressed = true }),
+            (sample("Focused", focused: true), { _ in }),
+            (sample("Focused, hover", focused: true), { $0.isHovered = true }),
+            (sample("Focused, pressed", focused: true), { $0.isPressed = true }),
+            (sample("Minimized", minimized: true), { _ in }),
+            (sample("Badge", badge: "3"), { _ in }),
+            (sample("Badge, long", badge: "120"), { _ in }),
+            (sample("Increase contrast"), { $0.highContrast = true }),
+        ]
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            let size = NSSize(width: 220, height: CGFloat(states.count) * 30 + 8)
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered,
+                defer: false)
+            window.appearance = NSAppearance(named: name)
+            let content = NSBox(frame: NSRect(origin: .zero, size: size))
+            content.boxType = .custom
+            content.borderWidth = 0
+            content.fillColor = .windowBackgroundColor
+            window.contentView = content
+            for (i, (task, apply)) in states.enumerated() {
+                let button = TaskButton(task: task, width: 200, height: 26)
+                button.alphaValue = button.targetAlpha
+                apply(button)
+                content.contentView?.addSubview(button)
+                NSLayoutConstraint.activate([
+                    button.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
+                    button.topAnchor.constraint(equalTo: content.topAnchor, constant: 4 + CGFloat(i) * 30),
+                ])
+            }
+            content.layoutSubtreeIfNeeded()
+            guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+            content.cacheDisplay(in: content.bounds, to: rep)
+            let url = dir.appendingPathComponent("buttons-\(name.rawValue).png")
+            do {
+                try rep.representation(using: .png, properties: [:])?.write(to: url)
+                print("Wrote \(url.path)")
+            } catch {
+                print("Writing \(url.path) failed: \(error)")
+            }
+        }
     }
 
     /// `register`, `unregister` or `status` of launch at login, as the Settings toggle does. Run the
