@@ -59,12 +59,15 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Screens") {
+                Toggle("Menu bar display only", isOn: $settings.menuBarScreenOnly)
                 ForEach(NSScreen.screens, id: \.self) { screen in
                     Toggle(
                         screen.localizedName,
                         isOn: Binding(
                             get: { settings.isEnabled(screen) },
-                            set: { settings.setEnabled($0, for: screen) }))
+                            set: { settings.setEnabled($0, for: screen) })
+                    )
+                    .disabled(settings.menuBarScreenOnly)
                 }
             }
             Section("Bar") {

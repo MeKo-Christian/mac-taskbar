@@ -17,12 +17,15 @@ final class Settings: ObservableObject {
     @Published var maxButtonWidth: Double { didSet { save(maxButtonWidth, Key.maxButtonWidth) } }
     /// Display UUIDs of screens without a bar. Stored inverted, so new screens get a bar by default.
     @Published var disabledScreens: Set<String> { didSet { save(disabledScreens.sorted(), Key.disabledScreens) } }
+    /// Show a single bar on the screen with the menu bar, overriding `disabledScreens`.
+    @Published var menuBarScreenOnly: Bool { didSet { save(menuBarScreenOnly, Key.menuBarScreenOnly) } }
 
     private enum Key {
         static let position = "barPosition"
         static let barHeight = "barHeight"
         static let maxButtonWidth = "maxButtonWidth"
         static let disabledScreens = "disabledScreens"
+        static let menuBarScreenOnly = "menuBarScreenOnly"
     }
 
     private let defaults: UserDefaults
@@ -33,10 +36,13 @@ final class Settings: ObservableObject {
         barHeight = Self.load(defaults, Key.barHeight, default: 32, in: Self.heightRange)
         maxButtonWidth = Self.load(defaults, Key.maxButtonWidth, default: 220, in: Self.buttonWidthRange)
         disabledScreens = Set(defaults.stringArray(forKey: Key.disabledScreens) ?? [])
+        menuBarScreenOnly = defaults.bool(forKey: Key.menuBarScreenOnly)
     }
 
     func isEnabled(_ screen: NSScreen) -> Bool {
-        screen.displayUUID.map { !disabledScreens.contains($0) } ?? true
+        // The first screen is the one with the menu bar (not `NSScreen.main`, which follows focus).
+        if menuBarScreenOnly { return screen == NSScreen.screens.first }
+        return screen.displayUUID.map { !disabledScreens.contains($0) } ?? true
     }
 
     func setEnabled(_ enabled: Bool, for screen: NSScreen) {
