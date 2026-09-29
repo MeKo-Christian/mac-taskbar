@@ -66,6 +66,9 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   app for helper windows that never resolve, then none over 3 round trips; idle CPU 0.19 s
   per 60 s. Remaining: a regular second desktop (could not add one via Mission Control
   automation), and the Settings picker itself (only tested via `defaults write`).
+  (2026-09-29) — partial: Settings picker checked via AX (now labelled "Windows from"), with a
+  TextEdit window full-screen on Space 748: "Current Space" stores `spaces = current` and gives
+  `Windows per bar: [5, 1]`, "All Spaces" `[6, 1]`. Remaining: a regular second desktop.
 - [ ] **Window filtering edge cases:** sheets/dialogs, utility/floating panels,
   untitled windows, Electron/Java apps with non-standard subroles, Finder
   desktop, windows of apps that are still launching, tabbed windows
@@ -134,10 +137,26 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   - when a window is zoomed or sized to fill the screen, shrink it via AX
     to end above the bar (as Rectangle does),
   - document "set the Dock to auto-hide" in onboarding.
-- [ ] **Incremental UI updates.** Diff snapshots and update/insert/remove buttons
+- [x] **Incremental UI updates.** Diff snapshots and update/insert/remove buttons
   instead of rebuilding all of them; animate changes.
+  (2026-09-29) — `TaskbarBar` keeps one button per `WindowKey` and re-applies title, tooltip,
+  tint and alpha in place; new buttons fade in, width changes animate (none with Reduce
+  motion). Debug log per update: opening a Finder window `+1 −0 =6`, changing its folder
+  `+0 −0 =7`, closing it `+0 −1 =6`; moving a TextEdit window Dell → built-in `−1` on one bar
+  and `+1` on the other, and back. Fixed a leak found on the way: the Close Window item's
+  `representedObject` retained its button (`heap`: 17 `TaskButton`s for 7 windows); now 7
+  before and after 10 open/close cycles.
 - [ ] **Button states:** hover, pressed, focused, minimized, attention/badge;
   correct colours in light/dark mode and with "Reduce transparency".
+  (2026-09-29) — partial: buttons draw their tint in `draw(_:)`, so it follows the appearance
+  (layer colours were fixed at creation); hover via tracking area, pressed via the cell's
+  highlight, "Increase contrast" adds an outline; the app's Dock badge (`AXStatusLabel` of its
+  Dock item) shows as a red capsule. `--render-buttons <dir>` renders every state light and dark
+  (checked). Live: posted mouse events log hover on/off and pressed true/false, the click focuses
+  TextEdit; switching the system to light and back redraws the panel (`screencapture -l`);
+  `--dump` shows `badge=2` for Teams, matching the Dock. Remaining: attention (bouncing) has no
+  public signal (the Dock items expose no such attribute); Reduce transparency and Increase
+  contrast untested live (`com.apple.universalaccess` is not writable from a script).
 - [ ] **Interactions:** middle-click to close, drag to reorder, scroll to cycle
   windows, context menu (New Window, Hide, Quit App, Move to Screen).
 - [ ] **Grouping.** Optional "group by app" with a window count and a popup list.
@@ -150,6 +169,12 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 - [ ] **Accessibility:** VoiceOver labels for buttons, keyboard navigation.
   (2026-09-29) — found: the Settings window's toggles expose no AX title (the label is a
   sibling `AXStaticText`), so they can only be addressed by position.
+  (2026-09-29) — partial: bar panels are titled "Taskbar"; each button's AX description is
+  "App — Title" plus its state, read back e.g. "Firefox — Livestreams | OpenAI, focused",
+  "Microsoft Teams — …, badge 2", "TextEdit — Ohne Titel 2, minimized". Every Settings
+  toggle, picker and slider now has a description ("Menu bar display only", "DELL U3223QE",
+  "Windows from", "Height", …; before: none). Remaining: keyboard navigation — the bar is a
+  non-activating panel, so it needs a global hotkey (to be decided) or relies on VoiceOver.
 - [ ] **Localization:** English + German.
 
 ## Phase 3 — Settings & lifecycle
