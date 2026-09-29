@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 
 @main
 @MainActor
@@ -73,6 +74,8 @@ enum MacTaskbarApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let source = WindowSource()
     private let observer = WindowObserver()
+    private let settings = Settings()
+    private var settingsChange: AnyCancellable?
     private var bars: [TaskbarBar] = []
     private var timer: Timer?
     private var lastTrusted: Bool?
@@ -88,6 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = AXIsProcessTrustedWithOptions(options)
 
         rebuildBars()
+        // `objectWillChange` fires before the new value is stored; rebuild on the next turn.
+        settingsChange = settings.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.screensChanged() } }
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
@@ -122,8 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebuildBars() {
         bars.forEach { $0.close() }
-        bars = NSScreen.screens.map { screen in
-            let bar = TaskbarBar(screen: screen)
+        bars = NSScreen.screens.filter(settings.isEnabled).map { screen in
+            let bar = TaskbarBar(screen: screen, settings: settings)
             bar.onClick = { [weak self] w in self?.clicked(w) }
             bar.onClose = { [weak self] w in
                 self?.source.close(w) { self?.refreshSoon() }

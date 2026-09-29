@@ -1,14 +1,14 @@
 import AppKit
 
-/// One bar pinned to the bottom edge of a screen, showing one button per window.
+/// One bar pinned to the bottom (or top) edge of a screen, showing one button per window.
 @MainActor
 final class TaskbarBar: NSObject {
-    static let height: CGFloat = 32
-    private static let maxButtonWidth: CGFloat = 220
     private static let spacing: CGFloat = 4
     private static let inset: CGFloat = 6
 
     let screenFrame: CGRect
+    private let maxButtonWidth: CGFloat
+    private let buttonHeight: CGFloat
     private let panel: NSPanel
     private let stack = NSStackView()
     private var signature: [String] = []
@@ -16,11 +16,14 @@ final class TaskbarBar: NSObject {
     var onClick: ((TaskWindow) -> Void)?
     var onClose: ((TaskWindow) -> Void)?
 
-    init(screen: NSScreen) {
+    init(screen: NSScreen, settings: Settings) {
         screenFrame = screen.frame
-        let frame = CGRect(
-            x: screen.frame.minX, y: screen.frame.minY,
-            width: screen.frame.width, height: Self.height)
+        maxButtonWidth = settings.maxButtonWidth
+        let height = settings.barHeight
+        buttonHeight = height - 6
+        // At the top, sit below the menu bar (the top of the visible frame).
+        let y = settings.position == .top ? screen.visibleFrame.maxY - height : screen.frame.minY
+        let frame = CGRect(x: screen.frame.minX, y: y, width: screen.frame.width, height: height)
         panel = NSPanel(
             contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
@@ -70,10 +73,10 @@ final class TaskbarBar: NSObject {
 
         // Shrink buttons evenly when the bar gets crowded.
         let available = screenFrame.width - 2 * Self.inset - CGFloat(windows.count - 1) * Self.spacing
-        let width = min(Self.maxButtonWidth, floor(available / CGFloat(windows.count)))
+        let width = min(maxButtonWidth, floor(available / CGFloat(windows.count)))
 
         for w in windows {
-            let button = TaskButton(task: w, width: width)
+            let button = TaskButton(task: w, width: width, height: buttonHeight)
             button.target = self
             button.action = #selector(buttonClicked(_:))
 
@@ -107,7 +110,7 @@ final class TaskbarBar: NSObject {
 final class TaskButton: NSButton {
     let task: TaskWindow
 
-    init(task: TaskWindow, width: CGFloat) {
+    init(task: TaskWindow, width: CGFloat, height: CGFloat) {
         self.task = task
         super.init(frame: .zero)
 
@@ -135,7 +138,7 @@ final class TaskButton: NSButton {
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: width),
-            heightAnchor.constraint(equalToConstant: 26),
+            heightAnchor.constraint(equalToConstant: height),
         ])
     }
 
