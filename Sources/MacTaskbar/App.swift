@@ -15,6 +15,10 @@ enum MacTaskbarApp {
             focus(matching: CommandLine.arguments[i + 1])
             return
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--login-item") {
+            loginItem(i + 1 < CommandLine.arguments.count ? CommandLine.arguments[i + 1] : "status")
+            return
+        }
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.accessory)
@@ -47,6 +51,17 @@ enum MacTaskbarApp {
         }
         let matching = windows.filter { w in w.windowID.flatMap { owners[$0] } == w.app.processIdentifier }
         print("\nWindow IDs matching CGWindowList (id + owner pid): \(matching.count)/\(windows.count)")
+    }
+
+    /// `register`, `unregister` or `status` of launch at login, as the Settings toggle does. Run the
+    /// binary inside MacTaskbar.app: `SMAppService.mainApp` refers to the enclosing bundle.
+    private static func loginItem(_ command: String) {
+        switch command {
+        case "register": LoginItem.setEnabled(true)
+        case "unregister": LoginItem.setEnabled(false)
+        default: break
+        }
+        print("Launch at login: \(LoginItem.describe(LoginItem.status))")
     }
 
     /// Focuses the first window whose title contains `text`, as a click on its button would, then
