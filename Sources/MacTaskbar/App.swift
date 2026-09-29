@@ -91,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let observer = WindowObserver()
     private let settings = Settings()
     private var settingsChange: AnyCancellable?
+    private lazy var settingsWindow = SettingsWindow(settings: settings)
+    private var statusItem: StatusItem?
     private var bars: [TaskbarBar] = []
     private var timer: Timer?
     private var lastTrusted: Bool?
@@ -105,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
 
+        statusItem = StatusItem { [weak self] in self?.settingsWindow.show() }
         rebuildBars()
         // `objectWillChange` fires before the new value is stored; rebuild on the next turn.
         settingsChange = settings.objectWillChange

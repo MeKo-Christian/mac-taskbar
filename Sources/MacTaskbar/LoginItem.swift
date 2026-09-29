@@ -5,9 +5,6 @@ import ServiceManagement
 enum LoginItem {
     static var status: SMAppService.Status { SMAppService.mainApp.status }
 
-    /// `requiresApproval` counts as enabled: registered, but waiting for the user in System Settings.
-    static var isEnabled: Bool { status == .enabled || status == .requiresApproval }
-
     static func setEnabled(_ enabled: Bool) {
         do {
             if enabled {
