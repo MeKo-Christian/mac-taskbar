@@ -116,13 +116,25 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
 
 ## Phase 3 — Settings & lifecycle
 
-- [ ] Status bar item (`NSStatusItem`) with Settings… and Quit.
+- [x] Status bar item (`NSStatusItem`) with Settings… and Quit. (2026-09-29) — the menu
+  shows both entries; Settings… opens the window in front even when activation is refused.
 - [ ] Settings window (SwiftUI): enabled screens, bar position (top/bottom),
   height, button max width, grouping, current Space vs. all Spaces, launch at login.
-- [ ] Persist settings in `UserDefaults`.
-- [ ] Launch at login via `SMAppService.mainApp.register()`.
+  (2026-09-29) — partial: screens (plus "Menu bar display only": one bar on the first
+  screen, which collects the windows of all screens; verified `Windows per bar: [5]` with
+  two displays), position, height, button width and launch at login. Grouping and the
+  Space option wait for those features.
+- [x] Persist settings in `UserDefaults`. (2026-09-29) — values clamped on load; verified
+  via `defaults write`: top/bottom position, height clamping, a disabled screen gets no bar.
+- [x] Launch at login via `SMAppService.mainApp.register()`. (2026-09-29) — verified with
+  `--login-item register | status | unregister` (`enabled` → `notRegistered`).
 - [ ] Onboarding window explaining and requesting the Accessibility permission;
   detect when the permission is revoked while running.
+  (2026-09-29) — partial: the window replaces the system prompt, opens Privacy &
+  Security → Accessibility and closes itself once trusted; a revoked permission is
+  checked on every reconciliation poll. The app became trusted again after the re-grant.
+  Remaining: the revocation test (`tccutil reset`) ran while the screen was locked and
+  the app still reported `AXIsProcessTrusted = true` 8 s later — rerun unlocked.
 
 ## Phase 4 — Engineering quality
 
