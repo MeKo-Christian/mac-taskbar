@@ -47,6 +47,7 @@ final class TaskbarBar: NSObject {
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.backgroundColor = .clear
+        panel.setAccessibilityTitle("Taskbar")
 
         let background = NSVisualEffectView()
         background.material = .menu
@@ -238,6 +239,17 @@ final class TaskButton: NSButton {
             image = icon
         }
         badge.text = task.badge
+        // VoiceOver reads this instead of the padded title, including what the tint conveys.
+        var label = [task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)"]
+        if task.isFocused { label.append("focused") }
+        if task.isMinimized {
+            label.append("minimized")
+        } else if task.isAppHidden {
+            label.append("hidden")
+        }
+        if !task.isOnCurrentSpace { label.append("on another Space") }
+        if let badge = task.badge { label.append("badge \(badge)") }
+        setAccessibilityLabel(label.joined(separator: ", "))
         needsDisplay = true
     }
 

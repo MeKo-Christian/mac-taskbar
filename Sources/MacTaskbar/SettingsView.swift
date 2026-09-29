@@ -59,7 +59,10 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Screens") {
+                // In a grouped form the label is a separate text; without an explicit label the
+                // controls have no accessible name.
                 Toggle("Menu bar display only", isOn: $settings.menuBarScreenOnly)
+                    .accessibilityLabel("Menu bar display only")
                 ForEach(NSScreen.screens, id: \.self) { screen in
                     Toggle(
                         screen.localizedName,
@@ -67,6 +70,7 @@ struct SettingsView: View {
                             get: { settings.isEnabled(screen) },
                             set: { settings.setEnabled($0, for: screen) })
                     )
+                    .accessibilityLabel(screen.localizedName)
                     .disabled(settings.menuBarScreenOnly)
                 }
             }
@@ -75,24 +79,30 @@ struct SettingsView: View {
                     Text("Bottom").tag(Settings.Position.bottom)
                     Text("Top").tag(Settings.Position.top)
                 }
+                .accessibilityLabel("Position")
                 Picker("Windows from", selection: $settings.spaces) {
                     Text("All Spaces").tag(Settings.SpaceMode.all)
                     Text("Current Space").tag(Settings.SpaceMode.current)
                 }
+                .accessibilityLabel("Windows from")
                 .disabled(!Spaces.isAvailable)
                 LabeledContent("Height") {
                     Slider(value: $settings.barHeight, in: Settings.heightRange, step: 2)
+                        .accessibilityLabel("Height")
                     Text("\(Int(settings.barHeight)) pt").monospacedDigit().frame(width: 48, alignment: .trailing)
                 }
                 LabeledContent("Button width") {
                     Slider(value: $settings.maxButtonWidth, in: Settings.buttonWidthRange, step: 10)
+                        .accessibilityLabel("Button width")
                     Text("\(Int(settings.maxButtonWidth)) pt").monospacedDigit().frame(width: 48, alignment: .trailing)
                 }
             }
             Section("General") {
                 Toggle(
                     "Launch at login",
-                    isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.setEnabled($0) }))
+                    isOn: Binding(get: { loginItem.isEnabled }, set: { loginItem.setEnabled($0) })
+                )
+                .accessibilityLabel("Launch at login")
                 if loginItem.status == .requiresApproval {
                     HStack {
                         Text("Allow MacTaskbar in Login Items to finish.").foregroundStyle(.secondary)
