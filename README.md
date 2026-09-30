@@ -14,6 +14,9 @@ bottom of every screen with one button per open window.
 - Windows that reach under the bar (zoomed, tiled, resized to the screen edge) are shrunk to end
   at its edge, once the mouse is released; windows that can't shrink are moved up instead.
   Windows dragged partly off-screen are left alone. Settings → *Keep windows clear of the bar*.
+- Optional auto-hide (Settings → *Automatically hide and show the bar*): the bar slides out of sight
+  and comes back when the pointer rests at its outer edge — the screen edge for a bottom bar, just
+  below the menu bar for a top bar. Windows keep the whole screen then.
 
 ## Build & run
 
@@ -56,6 +59,8 @@ build, and macOS silently stops applying the old grant.
 - macOS has no API to reserve screen space, so zoom and tiling still size windows to reach under
   the bar; the bar corrects them afterwards through the Accessibility API. Apps that resist a new
   frame are adjusted at most 3 times in 10 s, then left alone.
+- With auto-hide, a bottom bar shares the screen edge with an auto-hidden Dock at the bottom, so
+  both come up together; an edge shared with another display is crossed rather than rested on.
 - Tabs are not listed separately: Safari, Finder, Terminal and browser tabs share one
   window, so they get one button.
 - Floating panels (e.g. Fonts, Inspector), sheets and dialogs such as About boxes are not listed.

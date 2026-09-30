@@ -12,11 +12,14 @@ final class TaskbarBar: NSObject {
         let frame: CGRect
         let maxButtonWidth: CGFloat
         let position: Settings.Position
+        /// Hidden until the pointer rests at the bar's edge (see `AutoHide`).
+        let autoHide: Bool
 
         @MainActor init(screen: NSScreen, settings: Settings) {
             screenFrame = screen.frame
             maxButtonWidth = settings.maxButtonWidth
             position = settings.position
+            autoHide = settings.autoHide
             let height = settings.barHeight
             // At the top, sit below the menu bar (the top of the visible frame).
             let y = settings.position == .top ? screen.visibleFrame.maxY - height : screen.frame.minY
@@ -29,6 +32,7 @@ final class TaskbarBar: NSObject {
     private var maxButtonWidth: CGFloat { layout.maxButtonWidth }
     private var buttonHeight: CGFloat { layout.frame.height - 6 }
     private let panel: NSPanel
+    private let background = NSVisualEffectView()
     private let stack = NSStackView()
     private var signature: [String] = []
     /// The button of each shown window, by `WindowKey.id`.
@@ -36,6 +40,8 @@ final class TaskbarBar: NSObject {
 
     var onClick: ((TaskWindow) -> Void)?
     var onClose: ((TaskWindow) -> Void)?
+    /// False while auto-hide keeps the bar out of sight.
+    private(set) var isRevealed = true
 
     init(layout: Layout) {
         self.layout = layout
@@ -51,11 +57,16 @@ final class TaskbarBar: NSObject {
         panel.backgroundColor = .clear
         panel.setAccessibilityTitle("Taskbar")
 
-        let background = NSVisualEffectView()
         background.material = .menu
         background.blendingMode = .behindWindow
         background.state = .active
-        panel.contentView = background
+        // In a container, so hiding can slide it out of the panel, which clips it; sliding the panel
+        // itself would show it on a screen next to that edge.
+        let container = NSView(frame: CGRect(origin: .zero, size: layout.frame.size))
+        background.frame = container.bounds
+        background.autoresizingMask = [.width, .height]
+        container.addSubview(background)
+        panel.contentView = container
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Quit MacTaskbar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
@@ -72,6 +83,7 @@ final class TaskbarBar: NSObject {
             stack.trailingAnchor.constraint(lessThanOrEqualTo: background.trailingAnchor, constant: -Self.inset),
         ])
 
+        if layout.autoHide { setRevealed(false, animated: false) }
         panel.orderFrontRegardless()
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -86,6 +98,23 @@ final class TaskbarBar: NSObject {
 
     func close() {
         panel.orderOut(nil)
+    }
+
+    /// Slides the bar in from (or out to) its edge and fades it. A hidden bar stays ordered in but
+    /// lets clicks through, so it can come back without being reordered above other panels.
+    func setRevealed(_ revealed: Bool, animated: Bool = true) {
+        guard revealed != isRevealed else { return }
+        isRevealed = revealed
+        panel.ignoresMouseEvents = !revealed
+        // Past the outer edge: below a bottom bar, above a top one.
+        let outside = NSPoint(x: 0, y: layout.position == .bottom ? -layout.frame.height : layout.frame.height)
+        let slide = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if revealed && slide { background.setFrameOrigin(outside) }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? 0.2 : 0
+            panel.animator().alphaValue = revealed ? 1 : 0
+            background.animator().setFrameOrigin(revealed || !slide ? .zero : outside)
+        }
     }
 
     /// Updates the buttons in place: known windows keep their button, new ones fade in, closed

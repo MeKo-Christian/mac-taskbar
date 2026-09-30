@@ -158,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let source = WindowSource()
     private let observer = WindowObserver()
     private lazy var keepOut = KeepOut(source: source)
+    private let autoHide = AutoHide()
     private let settings = Settings()
     private var settingsChange: AnyCancellable?
     private lazy var settingsWindow = SettingsWindow(settings: settings)
@@ -220,6 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Screen parameters also change when nothing a bar depends on did (Dock, display wake);
         // keep the bars then, recreating them flickers.
         guard layouts != bars.map(\.layout) else { return }
+        autoHide.bars = []
         bars.forEach { $0.close() }
         bars = layouts.map { layout in
             let bar = TaskbarBar(layout: layout)
@@ -229,6 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return bar
         }
+        autoHide.bars = settings.autoHide ? bars : []
         Log.app.info("Bars rebuilt: \(self.bars.count) on \(NSScreen.screens.count) screens")
     }
 
@@ -277,7 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let i = barIndex(for: w.frame) { perBar[i].append(w) }
         }
         for (bar, windows) in zip(bars, perBar) { bar.update(windows) }
-        if settings.keepWindowsClear {
+        if settings.keepWindowsClear && !settings.autoHide {
             keepOut.apply(zip(bars, perBar).map { (layout: $0.layout, windows: $1) })
         }
 

@@ -27,6 +27,9 @@ final class Settings: ObservableObject {
     @Published var spaces: SpaceMode { didSet { save(spaces.rawValue, Key.spaces) } }
     /// Shrink windows that reach under a bar (zoomed, tiled, resized to the edge) to end at its edge.
     @Published var keepWindowsClear: Bool { didSet { save(keepWindowsClear, Key.keepWindowsClear) } }
+    /// Hide the bars until the pointer rests at their edge. Windows then keep the whole screen, so
+    /// this takes precedence over `keepWindowsClear`.
+    @Published var autoHide: Bool { didSet { save(autoHide, Key.autoHide) } }
 
     private enum Key {
         static let position = "barPosition"
@@ -36,6 +39,7 @@ final class Settings: ObservableObject {
         static let menuBarScreenOnly = "menuBarScreenOnly"
         static let spaces = "spaces"
         static let keepWindowsClear = "keepWindowsClear"
+        static let autoHide = "autoHide"
     }
 
     private let defaults: UserDefaults
@@ -49,6 +53,7 @@ final class Settings: ObservableObject {
         menuBarScreenOnly = defaults.bool(forKey: Key.menuBarScreenOnly)
         spaces = defaults.string(forKey: Key.spaces).flatMap(SpaceMode.init) ?? .all
         keepWindowsClear = defaults.object(forKey: Key.keepWindowsClear) as? Bool ?? true
+        autoHide = defaults.bool(forKey: Key.autoHide)
     }
 
     func isEnabled(_ screen: NSScreen) -> Bool {

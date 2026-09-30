@@ -86,8 +86,12 @@ struct SettingsView: View {
                 }
                 .accessibilityLabel("Windows from")
                 .disabled(!Spaces.isAvailable)
+                Toggle("Automatically hide and show the bar", isOn: $settings.autoHide)
+                    .accessibilityLabel("Automatically hide and show the bar")
+                // A hidden bar covers nothing, so windows keep the whole screen.
                 Toggle("Keep windows clear of the bar", isOn: $settings.keepWindowsClear)
                     .accessibilityLabel("Keep windows clear of the bar")
+                    .disabled(settings.autoHide)
                 LabeledContent("Height") {
                     Slider(value: $settings.barHeight, in: Settings.heightRange, step: 2)
                         .accessibilityLabel("Height")

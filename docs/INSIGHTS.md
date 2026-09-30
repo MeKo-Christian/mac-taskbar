@@ -90,6 +90,19 @@ every entry states something that holds today, found while building and verifyin
   refresh). Never re-adjust a frame an adjustment produced, and cap adjustments per window
   (3 in 10 s).
 
+## Auto-hide
+
+- Global event monitors only see events delivered to other apps. A hidden bar sets
+  `ignoresMouseEvents`, so the pointer over it reaches the apps below and the global `.mouseMoved`
+  monitor sees it; once the bar is shown, the pointer is over our own panel and has to be polled
+  (`NSEvent.mouseLocation`).
+- Reveal only after the pointer rests at the edge for a moment: the strip under a top bar is
+  crossed on every trip to the menu bar or a window's title bar.
+- Slide the bar's content inside the panel, not the panel itself: the panel clips its content,
+  whereas a panel moved past the screen edge shows up on a display adjoining that edge.
+- `NSMenu.didBeginTracking`/`didEndTracking` tell when a bar's context menu is open; the pointer
+  is outside the bar then, but the bar must stay.
+
 ## Tooling and verification
 
 - `just logs` streams the app's log; `just dump` prints the enumeration (`id=`, role/subrole,
@@ -97,6 +110,10 @@ every entry states something that holds today, found while building and verifyin
 - Debug modes of the binary: `--focus <title>` (the click path), `--render-buttons <dir>` (every
   button state, light and dark), `--login-item register|status|unregister`.
 - Settings can be set without the UI: `defaults write io.github.cwbudde.mactaskbar <key> <value>`.
+  The running app doesn't notice; restart it.
+- Pointer and clicks can be scripted with `CGEvent(mouseEventSource:mouseType:…)` posted to
+  `.cghidEventTap` (needs Accessibility for the terminal); `kCGWindowAlpha` in
+  `CGWindowListCopyWindowInfo` shows whether a bar is shown.
 - Leak checks: `heap <pid>` counts live `NSPanel`/`TaskbarBar`/`TaskButton` instances. Panel
   visibility per Space: the `onscreen` flag in `CGWindowListCopyWindowInfo`. Panel pixels:
   `screencapture -l <windowID>`.
