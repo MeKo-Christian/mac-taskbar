@@ -45,7 +45,7 @@ macOS behaviour live in [docs/INSIGHTS.md](docs/INSIGHTS.md).
   - [ ] Keep-out with Terminal-style size increments (Terminal, iTerm).
   - [ ] Keep-out after drag-to-tile with a real mouse.
   - [x] Optional auto-hide of the bar (`AutoHide`, keep-out pauses while it is on).
-  - [ ] Onboarding hint: set the Dock to auto-hide.
+  - [x] Onboarding hint: set the Dock to auto-hide (`DockHintWindow`).
 - [x] **Incremental UI updates.** Buttons diffed per `WindowKey`, fade in, animated width changes.
 - [ ] **Button states.**
   - [x] Hover, pressed, focused, minimized; light/dark; *Increase contrast* outline; Dock badges.

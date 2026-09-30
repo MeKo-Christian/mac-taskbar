@@ -164,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var settingsWindow = SettingsWindow(settings: settings)
     private var statusItem: StatusItem?
     private let onboarding = OnboardingWindow()
+    private lazy var dockHint = DockHintWindow(settings: settings)
     private var bars: [TaskbarBar] = []
     private var timer: Timer?
     private var lastTrusted: Bool?
@@ -243,6 +244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Also catches a permission revoked while running (within one reconciliation poll).
             if trusted { onboarding.close() } else { onboarding.show() }
         }
+        // After the Accessibility onboarding, never on top of it.
+        dockHint.update(dockCoversBar: trusted && dockCoversBar)
         guard trusted else {
             bars.forEach {
                 $0.showMessage("Grant Accessibility access to MacTaskbar in System Settings → Privacy & Security")
@@ -288,6 +291,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if counts != lastCounts {
             Log.app.info("Windows per bar: \(counts, privacy: .public)")
             lastCounts = counts
+        }
+    }
+
+    /// A visible Dock at the bottom reserves space there (the visible frame starts above it) and sits
+    /// above the bar's window level, covering a bottom bar on that screen.
+    private var dockCoversBar: Bool {
+        bars.contains { bar in
+            bar.layout.position == .bottom
+                && NSScreen.screens.contains { $0.frame == bar.screenFrame && $0.visibleFrame.minY > $0.frame.minY + 1 }
         }
     }
 

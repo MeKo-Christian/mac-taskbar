@@ -17,6 +17,8 @@ bottom of every screen with one button per open window.
 - Optional auto-hide (Settings → *Automatically hide and show the bar*): the bar slides out of sight
   and comes back when the pointer rests at its outer edge — the screen edge for a bottom bar, just
   below the menu bar for a top bar. Windows keep the whole screen then.
+- A visible Dock at the bottom covers the bar. MacTaskbar then offers to set the Dock to hide
+  automatically (or to move the bar to the top); the hint comes once per launch until dismissed.
 
 ## Build & run
 

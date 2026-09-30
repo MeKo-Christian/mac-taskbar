@@ -103,6 +103,15 @@ every entry states something that holds today, found while building and verifyin
 - `NSMenu.didBeginTracking`/`didEndTracking` tell when a bar's context menu is open; the pointer
   is outside the bar then, but the bar must stay.
 
+## The Dock
+
+- The Dock's window level is above `.floating`, so a visible Dock at the bottom covers a bottom bar.
+- A screen whose `visibleFrame.minY` lies above its `frame.minY` has a visible Dock at the bottom;
+  toggling the Dock changes screen parameters, so this is re-checked on every screen change.
+- The Dock reads `autohide` (domain `com.apple.dock`) at start: `CFPreferencesSetAppValue` +
+  `CFPreferencesAppSynchronize` + `killall Dock` (launchd restarts it) applies it without the
+  Automation permission that System Events' `dock preferences` needs.
+
 ## Tooling and verification
 
 - `just logs` streams the app's log; `just dump` prints the enumeration (`id=`, role/subrole,
@@ -117,6 +126,9 @@ every entry states something that holds today, found while building and verifyin
 - Leak checks: `heap <pid>` counts live `NSPanel`/`TaskbarBar`/`TaskButton` instances. Panel
   visibility per Space: the `onscreen` flag in `CGWindowListCopyWindowInfo`. Panel pixels:
   `screencapture -l <windowID>`.
+- Live tests change real windows: a visible Dock makes macOS squeeze windows into the smaller
+  visible frame, and keep-out shrinks them for a top bar. Note their frames with `just dump` first
+  and restore them by `CGWindowID` (`_AXUIElementGetWindow`), not by size, which is ambiguous.
 - zsh has a `log` builtin; use `/usr/bin/log show` / `/usr/bin/log stream`.
 - Not scriptable: adding a desktop via Mission Control, writing `com.apple.universalaccess`
   (Reduce transparency, Increase contrast), display sleep/wake, clamshell, replugging displays.
