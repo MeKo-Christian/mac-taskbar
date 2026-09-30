@@ -389,6 +389,59 @@ final class WindowSource: @unchecked Sendable {
         }
     }
 
+    /// Resizes and moves a window to `frame` (Cocoa coordinates). Apps may refuse a size smaller
+    /// than their minimum; the window is then raised so its bottom still lands on `frame.minY`, but
+    /// its top never goes above `topLimit`. Full-screen windows are left alone (result nil).
+    /// Delivers the frame the window ended up with.
+    func setFrame(
+        _ w: TaskWindow, to frame: CGRect, topLimit: CGFloat, primaryHeight: CGFloat,
+        completion: @escaping @MainActor (CGRect?) -> Void
+    ) {
+        let deliver = { (result: CGRect?) in
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(result) } }
+        }
+        queue.async { [queue] in
+            let result = Self.setFrame(w.element, frame, topLimit: topLimit, primaryHeight: primaryHeight)
+            // The size took but the move didn't: the app is still applying the size (Firefox drops
+            // moves meanwhile). Move again a little later, without blocking the queue.
+            guard let result, result.height <= frame.height + 1, abs(result.maxY - frame.maxY) > 1 else {
+                return deliver(result)
+            }
+            queue.asyncAfter(deadline: .now() + Self.moveRetryDelay) {
+                setPoint(w.element, kAXPositionAttribute, CGPoint(x: frame.minX, y: primaryHeight - frame.maxY))
+                deliver(Self.frame(of: w.element, primaryHeight: primaryHeight))
+            }
+        }
+    }
+
+    private static let moveRetryDelay: TimeInterval = 0.1
+
+    private static func frame(of element: AXUIElement, primaryHeight: CGFloat) -> CGRect? {
+        guard let p = copyPoint(element, kAXPositionAttribute), let s = copySize(element, kAXSizeAttribute)
+        else { return nil }
+        return CGRect(x: p.x, y: primaryHeight - p.y - s.height, width: s.width, height: s.height)
+    }
+
+    private static func setFrame(
+        _ element: AXUIElement, _ frame: CGRect, topLimit: CGFloat, primaryHeight: CGFloat
+    ) -> CGRect? {
+        guard copyAttribute(element, "AXFullScreen") != true,
+            let position = copyPoint(element, kAXPositionAttribute)
+        else { return nil }
+        // AX positions are the top-left corner, y pointing down from the primary screen's top.
+        let topLeft = { (maxY: CGFloat) in CGPoint(x: frame.minX, y: primaryHeight - maxY) }
+        // Move, resize, move again: some apps (Firefox) apply the size asynchronously and drop a move
+        // that follows it, others shift the window while resizing.
+        let moves = position != topLeft(frame.maxY)
+        if moves { setPoint(element, kAXPositionAttribute, topLeft(frame.maxY)) }
+        setSize(element, kAXSizeAttribute, frame.size)
+        if moves { setPoint(element, kAXPositionAttribute, topLeft(frame.maxY)) }
+        if let size = copySize(element, kAXSizeAttribute), size.height > frame.height + 1 {
+            setPoint(element, kAXPositionAttribute, topLeft(min(frame.minY + size.height, topLimit)))
+        }
+        return Self.frame(of: element, primaryHeight: primaryHeight)
+    }
+
     private func perform(_ completion: @escaping @MainActor () -> Void, _ action: @escaping () -> Void) {
         queue.async {
             action()
@@ -488,4 +541,16 @@ private func copySize(_ element: AXUIElement, _ name: String) -> CGSize? {
     guard let value = copyAXValue(element, name) else { return nil }
     var size = CGSize.zero
     return AXValueGetValue(value, .cgSize, &size) ? size : nil
+}
+
+private func setPoint(_ element: AXUIElement, _ name: String, _ point: CGPoint) {
+    var point = point
+    guard let value = AXValueCreate(.cgPoint, &point) else { return }
+    AXUIElementSetAttributeValue(element, name as CFString, value)
+}
+
+private func setSize(_ element: AXUIElement, _ name: String, _ size: CGSize) {
+    var size = size
+    guard let value = AXValueCreate(.cgSize, &size) else { return }
+    AXUIElementSetAttributeValue(element, name as CFString, value)
 }

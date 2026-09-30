@@ -11,6 +11,9 @@ bottom of every screen with one button per open window.
 - Each screen lists the windows whose center lies on that screen.
 - Windows on other Spaces, full-screen apps included, are listed too; clicking one switches to
   its Space. Settings → *Windows from: Current Space* limits the bar to the Spaces on screen.
+- Windows that reach under the bar (zoomed, tiled, resized to the screen edge) are shrunk to end
+  at its edge, once the mouse is released; windows that can't shrink are moved up instead.
+  Windows dragged partly off-screen are left alone. Settings → *Keep windows clear of the bar*.
 
 ## Build & run
 
@@ -50,7 +53,9 @@ build, and macOS silently stops applying the old grant.
   private macOS functions (SkyLight, remote AX tokens), as AltTab does; if a macOS update removes
   them, the bar falls back to the current Space.
 - The bar is not shown on full-screen Spaces.
-- macOS has no API to reserve screen space, so maximized windows extend underneath the bar.
+- macOS has no API to reserve screen space, so zoom and tiling still size windows to reach under
+  the bar; the bar corrects them afterwards through the Accessibility API. Apps that resist a new
+  frame are adjusted at most 3 times in 10 s, then left alone.
 - Tabs are not listed separately: Safari, Finder, Terminal and browser tabs share one
   window, so they get one button.
 - Floating panels (e.g. Fonts, Inspector), sheets and dialogs such as About boxes are not listed.

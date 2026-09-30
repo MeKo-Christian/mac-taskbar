@@ -137,6 +137,18 @@ Phases are ordered by dependency; within a phase, items are roughly by priority.
   - when a window is zoomed or sized to fill the screen, shrink it via AX
     to end above the bar (as Rectangle does),
   - document "set the Dock to auto-hide" in onboarding.
+  (2026-09-30) — partial: keep-out via AX (`KeepOut`, setting *Keep windows clear of the bar*,
+  on by default). A window whose bottom edge lies inside the bar strip (top bar: whose top reaches
+  under it) is shrunk to end at the bar; windows parked below the screen edge are left alone.
+  Waits for mouse-up during drags/resizes. Checked on the built-in display, Dock auto-hidden, bar
+  32 pt: TextEdit zoom `(0, 0, 1512×949)` → `(0, 32, 1512×917)`, zooming again re-adjusts; a
+  window ending at y=7 → 32; one parked at y=−118 untouched; Calculator (fixed size) at y=10 is
+  moved up to 32; top bar: zoom → top at the bar's lower edge; setting off → no change. Firefox
+  with a top bar applies the size asynchronously and dropped the move, and the first version
+  shrank it 12 pt per refresh (31×); now: move–resize–move, a re-move 100 ms later when only the
+  size took, frames produced by an adjustment are never adjusted again, and at most 3
+  adjustments per window in 10 s. Remaining: auto-hide, onboarding hint, a second display,
+  Terminal-style size increments, drag-to-tile with a real mouse.
 - [x] **Incremental UI updates.** Diff snapshots and update/insert/remove buttons
   instead of rebuilding all of them; animate changes.
   (2026-09-29) — `TaskbarBar` keeps one button per `WindowKey` and re-applies title, tooltip,

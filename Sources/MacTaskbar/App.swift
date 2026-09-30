@@ -157,6 +157,7 @@ enum MacTaskbarApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let source = WindowSource()
     private let observer = WindowObserver()
+    private lazy var keepOut = KeepOut(source: source)
     private let settings = Settings()
     private var settingsChange: AnyCancellable?
     private lazy var settingsWindow = SettingsWindow(settings: settings)
@@ -196,6 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         observer.onChange = { [weak self] in self?.refresh() }
+        keepOut.onMouseUp = { [weak self] in self?.refreshSoon() }
 
         // AX notifications drive updates; this slow poll only reconciles missed events and
         // retries attaching to apps that were still launching.
@@ -275,6 +277,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let i = barIndex(for: w.frame) { perBar[i].append(w) }
         }
         for (bar, windows) in zip(bars, perBar) { bar.update(windows) }
+        if settings.keepWindowsClear {
+            keepOut.apply(zip(bars, perBar).map { (layout: $0.layout, windows: $1) })
+        }
 
         let counts = perBar.map(\.count)
         if counts != lastCounts {

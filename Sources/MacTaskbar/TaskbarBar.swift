@@ -11,10 +11,12 @@ final class TaskbarBar: NSObject {
         let screenFrame: CGRect
         let frame: CGRect
         let maxButtonWidth: CGFloat
+        let position: Settings.Position
 
         @MainActor init(screen: NSScreen, settings: Settings) {
             screenFrame = screen.frame
             maxButtonWidth = settings.maxButtonWidth
+            position = settings.position
             let height = settings.barHeight
             // At the top, sit below the menu bar (the top of the visible frame).
             let y = settings.position == .top ? screen.visibleFrame.maxY - height : screen.frame.minY

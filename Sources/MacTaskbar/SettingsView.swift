@@ -86,6 +86,8 @@ struct SettingsView: View {
                 }
                 .accessibilityLabel("Windows from")
                 .disabled(!Spaces.isAvailable)
+                Toggle("Keep windows clear of the bar", isOn: $settings.keepWindowsClear)
+                    .accessibilityLabel("Keep windows clear of the bar")
                 LabeledContent("Height") {
                     Slider(value: $settings.barHeight, in: Settings.heightRange, step: 2)
                         .accessibilityLabel("Height")

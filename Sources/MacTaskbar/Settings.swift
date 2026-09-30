@@ -25,6 +25,8 @@ final class Settings: ObservableObject {
     /// Show a single bar on the screen with the menu bar, overriding `disabledScreens`.
     @Published var menuBarScreenOnly: Bool { didSet { save(menuBarScreenOnly, Key.menuBarScreenOnly) } }
     @Published var spaces: SpaceMode { didSet { save(spaces.rawValue, Key.spaces) } }
+    /// Shrink windows that reach under a bar (zoomed, tiled, resized to the edge) to end at its edge.
+    @Published var keepWindowsClear: Bool { didSet { save(keepWindowsClear, Key.keepWindowsClear) } }
 
     private enum Key {
         static let position = "barPosition"
@@ -33,6 +35,7 @@ final class Settings: ObservableObject {
         static let disabledScreens = "disabledScreens"
         static let menuBarScreenOnly = "menuBarScreenOnly"
         static let spaces = "spaces"
+        static let keepWindowsClear = "keepWindowsClear"
     }
 
     private let defaults: UserDefaults
@@ -45,6 +48,7 @@ final class Settings: ObservableObject {
         disabledScreens = Set(defaults.stringArray(forKey: Key.disabledScreens) ?? [])
         menuBarScreenOnly = defaults.bool(forKey: Key.menuBarScreenOnly)
         spaces = defaults.string(forKey: Key.spaces).flatMap(SpaceMode.init) ?? .all
+        keepWindowsClear = defaults.object(forKey: Key.keepWindowsClear) as? Bool ?? true
     }
 
     func isEnabled(_ screen: NSScreen) -> Bool {
