@@ -58,7 +58,8 @@ macOS behaviour live in [docs/INSIGHTS.md](docs/INSIGHTS.md).
   - [x] Scroll to cycle windows (the bar's windows, wrapping; trackpad deltas add up).
   - [ ] Context menu: New Window, Hide, Quit App, Move to Screen. (2026-10-01) — partial: all built;
         New Window (the app's ⌘N item), Hide and Quit verified, Move to Screen needs a second display.
-- [ ] **Grouping.** Optional "group by app" with a window count and a popup list.
+- [x] **Grouping.** Setting *Group windows by app*: one button per app with 2+ windows on a bar,
+  with a count; click lists its windows, right-click offers *Close All Windows*.
 - [ ] **Hover previews** via ScreenCaptureKit (requires Screen Recording permission — keep optional).
 - [ ] **Pinned launchers** (optional), so the Dock can be hidden completely.
 - [ ] **Status area** (optional): clock, maybe a menu for settings/quit.
@@ -72,10 +73,10 @@ macOS behaviour live in [docs/INSIGHTS.md](docs/INSIGHTS.md).
 ## Phase 3 — Settings & lifecycle
 
 - [x] Status bar item with Settings… and Quit.
-- [ ] **Settings window (SwiftUI).**
+- [x] **Settings window (SwiftUI).**
   - [x] Enabled screens, *Menu bar display only*, position, height, button width, Windows from,
         keep windows clear, launch at login.
-  - [ ] Grouping (waits for the feature).
+  - [x] Grouping: *Group windows by app*.
 - [x] Settings persisted in `UserDefaults`, clamped on load.
 - [x] Launch at login via `SMAppService.mainApp`.
 - [ ] **Onboarding.**
