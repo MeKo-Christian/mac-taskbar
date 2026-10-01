@@ -138,5 +138,9 @@ every entry states something that holds today, found while building and verifyin
   zoom, press *Window ▸ Zoom* in the app's menu bar (`kAXMenuBarAttribute`).
 - An open context menu of the bar is in MacTaskbar's AX tree (`AXMenuItem`s under the app
   element), so its items can be pressed by title after a scripted right-click.
+- A menu opened with `NSMenu.popUp(positioning:at:in: nil)` (a group's window list) is not in
+  that tree. `AXUIElementCopyElementAtPosition` on the system-wide element finds its items by
+  screen position (top-left origin), and they can be pressed from there. A second scripted click
+  on the button closes the open menu instead of reopening it.
 - Not scriptable: adding a desktop via Mission Control, writing `com.apple.universalaccess`
   (Reduce transparency, Increase contrast), display sleep/wake, clamshell, replugging displays.
