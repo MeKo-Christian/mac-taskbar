@@ -433,14 +433,33 @@ final class WindowSource: @unchecked Sendable {
         // Move, resize, move again: some apps (Firefox) apply the size asynchronously and drop a move
         // that follows it, others shift the window while resizing.
         let moves = position != topLeft(frame.maxY)
+        let original = copySize(element, kAXSizeAttribute)
         if moves { setPoint(element, kAXPositionAttribute, topLeft(frame.maxY)) }
         setSize(element, kAXSizeAttribute, frame.size)
         if moves { setPoint(element, kAXPositionAttribute, topLeft(frame.maxY)) }
+        fitHeight(element, frame.size, original: original)
         if let size = copySize(element, kAXSizeAttribute), size.height > frame.height + 1 {
             setPoint(element, kAXPositionAttribute, topLeft(min(frame.minY + size.height, topLimit)))
         }
         return Self.frame(of: element, primaryHeight: primaryHeight)
     }
+
+    /// Apps with size increments (Terminal's rows) round a requested height to the nearest step,
+    /// which can end up taller than asked. Ask for smaller heights, doubling the step, until one
+    /// fits. Only when the app did resize: fixed-size apps keep, and late ones still report, the
+    /// original height.
+    private static func fitHeight(_ element: AXUIElement, _ size: CGSize, original: CGSize?) {
+        var step: CGFloat = 0
+        for _ in 0..<fitAttempts {
+            guard let got = copySize(element, kAXSizeAttribute), got.height > size.height + 1,
+                got.height != original?.height
+            else { return }
+            step = max(2 * step, got.height - size.height)
+            setSize(element, kAXSizeAttribute, CGSize(width: size.width, height: size.height - step))
+        }
+    }
+
+    private static let fitAttempts = 4
 
     private func perform(_ completion: @escaping @MainActor () -> Void, _ action: @escaping () -> Void) {
         queue.async {
