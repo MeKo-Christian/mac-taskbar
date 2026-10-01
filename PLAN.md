@@ -60,7 +60,9 @@ macOS behaviour live in [docs/INSIGHTS.md](docs/INSIGHTS.md).
         New Window (the app's ⌘N item), Hide and Quit verified, Move to Screen needs a second display.
 - [x] **Grouping.** Setting *Group windows by app*: one button per app with 2+ windows on a bar,
   with a count; click lists its windows, right-click offers *Close All Windows*.
-- [ ] **Hover previews** via ScreenCaptureKit (requires Screen Recording permission — keep optional).
+- [x] **Hover previews** via ScreenCaptureKit (requires Screen Recording permission — keep optional).
+  (2026-10-01) — Setting *Show window previews on hover* (off by default; asks for the permission,
+  does nothing without it): thumbnails above the button, a group's windows in a row, click focuses.
 - [ ] **Pinned launchers** (optional), so the Dock can be hidden completely.
 - [ ] **Status area** (optional): clock, maybe a menu for settings/quit.
 - [ ] **Dock interplay.** The Dock's reveal zone overlaps the bar; check Dock at bottom/left/right
@@ -76,7 +78,7 @@ macOS behaviour live in [docs/INSIGHTS.md](docs/INSIGHTS.md).
 - [x] **Settings window (SwiftUI).**
   - [x] Enabled screens, *Menu bar display only*, position, height, button width, Windows from,
         keep windows clear, launch at login.
-  - [x] Grouping: *Group windows by app*.
+  - [x] Grouping: *Group windows by app*; window previews: *Show window previews on hover*.
 - [x] Settings persisted in `UserDefaults`, clamped on load.
 - [x] Launch at login via `SMAppService.mainApp`.
 - [ ] **Onboarding.**
