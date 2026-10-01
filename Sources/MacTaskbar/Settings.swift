@@ -30,6 +30,8 @@ final class Settings: ObservableObject {
     /// Hide the bars until the pointer rests at their edge. Windows then keep the whole screen, so
     /// this takes precedence over `keepWindowsClear`.
     @Published var autoHide: Bool { didSet { save(autoHide, Key.autoHide) } }
+    /// One button per app for apps with several windows on a bar; a click lists the windows.
+    @Published var groupByApp: Bool { didSet { save(groupByApp, Key.groupByApp) } }
 
     private enum Key {
         static let position = "barPosition"
@@ -40,6 +42,7 @@ final class Settings: ObservableObject {
         static let spaces = "spaces"
         static let keepWindowsClear = "keepWindowsClear"
         static let autoHide = "autoHide"
+        static let groupByApp = "groupByApp"
     }
 
     private let defaults: UserDefaults
@@ -54,6 +57,7 @@ final class Settings: ObservableObject {
         spaces = defaults.string(forKey: Key.spaces).flatMap(SpaceMode.init) ?? .all
         keepWindowsClear = defaults.object(forKey: Key.keepWindowsClear) as? Bool ?? true
         autoHide = defaults.bool(forKey: Key.autoHide)
+        groupByApp = defaults.bool(forKey: Key.groupByApp)
     }
 
     func isEnabled(_ screen: NSScreen) -> Bool {

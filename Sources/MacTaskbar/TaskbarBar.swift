@@ -1,6 +1,7 @@
 import AppKit
 
-/// One bar pinned to the bottom (or top) edge of a screen, showing one button per window.
+/// One bar pinned to the bottom (or top) edge of a screen, showing one button per window (or per
+/// app, with *Group windows by app*).
 @MainActor
 final class TaskbarBar: NSObject {
     private static let spacing: CGFloat = 4
@@ -14,12 +15,14 @@ final class TaskbarBar: NSObject {
         let position: Settings.Position
         /// Hidden until the pointer rests at the bar's edge (see `AutoHide`).
         let autoHide: Bool
+        let groupByApp: Bool
 
         @MainActor init(screen: NSScreen, settings: Settings) {
             screenFrame = screen.frame
             maxButtonWidth = settings.maxButtonWidth
             position = settings.position
             autoHide = settings.autoHide
+            groupByApp = settings.groupByApp
             let height = settings.barHeight
             // At the top, sit below the menu bar (the top of the visible frame).
             let y = settings.position == .top ? screen.visibleFrame.maxY - height : screen.frame.minY
@@ -41,7 +44,7 @@ final class TaskbarBar: NSObject {
     private let background = NSVisualEffectView()
     private let stack = NSStackView()
     private var signature: [String] = []
-    /// The button of each shown window, by `WindowKey.id`.
+    /// The button of each shown window, by `WindowKey.id`, or of each app (`buttonID`) when grouping.
     private var buttons: [String: TaskButton] = [:]
     /// While a button is dragged, updates wait: they would put it back mid-drag.
     private var isDragging = false
@@ -53,10 +56,10 @@ final class TaskbarBar: NSObject {
     private static let scrollStep: CGFloat = 30
     private static let cycleMemory: TimeInterval = 1
 
-    /// A plain click on a button.
+    /// A plain click on a single window's button.
     var onClick: ((TaskWindow) -> Void)?
     var onAction: ((TaskWindow, Action) -> Void)?
-    /// Scrolling over the bar focuses the next or previous window.
+    /// Scrolling over the bar, or picking a window from a group's list, focuses that window.
     var onActivate: ((TaskWindow) -> Void)?
     /// A button was dragged elsewhere: the bar's windows in their new order.
     var onReorder: (([TaskWindow]) -> Void)?
@@ -149,12 +152,15 @@ final class TaskbarBar: NSObject {
         if signature == ["message"] { stack.arrangedSubviews.forEach { $0.removeFromSuperview() } }
         signature = sig
 
+        // Windows of an app stay in one group, placed where its first window is.
+        let groups = layout.groupByApp ? Self.grouped(windows) : windows.map { [$0] }
+
         // Shrink buttons evenly when the bar gets crowded.
-        let count = CGFloat(max(windows.count, 1))
+        let count = CGFloat(max(groups.count, 1))
         let available = screenFrame.width - 2 * Self.inset - (count - 1) * Self.spacing
         let width = min(maxButtonWidth, floor(available / count))
 
-        let ids = Set(windows.map(\.key.id))
+        let ids = Set(groups.map(buttonID))
         let gone = buttons.filter { !ids.contains($0.key) }
         for (id, button) in gone {
             button.removeFromSuperview()
@@ -163,13 +169,14 @@ final class TaskbarBar: NSObject {
         let kept = stack.arrangedSubviews.compactMap { $0 as? TaskButton }
 
         var added: [TaskButton] = []
-        let ordered = windows.map { w -> TaskButton in
-            if let button = buttons[w.key.id] {
-                button.task = w
+        let ordered = groups.map { tasks -> TaskButton in
+            let id = buttonID(tasks)
+            if let button = buttons[id] {
+                button.tasks = tasks
                 return button
             }
-            let button = makeButton(w)
-            buttons[w.key.id] = button
+            let button = makeButton(tasks)
+            buttons[id] = button
             added.append(button)
             return button
         }
@@ -196,8 +203,27 @@ final class TaskbarBar: NSObject {
         )
     }
 
-    private func makeButton(_ w: TaskWindow) -> TaskButton {
-        let button = TaskButton(task: w, width: maxButtonWidth, height: buttonHeight)
+    /// Per app while grouping, so an app's second window joins its button instead of replacing it.
+    private func buttonID(_ tasks: [TaskWindow]) -> String {
+        layout.groupByApp ? "app:\(tasks[0].app.processIdentifier)" : tasks[0].key.id
+    }
+
+    private static func grouped(_ windows: [TaskWindow]) -> [[TaskWindow]] {
+        var groups: [[TaskWindow]] = []
+        var index: [pid_t: Int] = [:]
+        for w in windows {
+            if let i = index[w.app.processIdentifier] {
+                groups[i].append(w)
+            } else {
+                index[w.app.processIdentifier] = groups.count
+                groups.append([w])
+            }
+        }
+        return groups
+    }
+
+    private func makeButton(_ tasks: [TaskWindow]) -> TaskButton {
+        let button = TaskButton(tasks: tasks, width: maxButtonWidth, height: buttonHeight)
         button.target = self
         button.action = #selector(buttonClicked(_:))
         // Filled when it opens (`menuNeedsUpdate`), so app names and screens are current.
@@ -216,10 +242,44 @@ final class TaskbarBar: NSObject {
     }
 
     @objc private func buttonClicked(_ sender: TaskButton) {
-        onClick?(sender.task)
+        if sender.isGroup {
+            showWindows(of: sender)
+        } else {
+            onClick?(sender.task)
+        }
     }
 
+    /// A group's windows as a menu next to its button, opening away from the bar's screen edge.
+    private func showWindows(of button: TaskButton) {
+        let menu = NSMenu()
+        for w in button.tasks {
+            var state: [String] = []
+            if w.isMinimized {
+                state.append("minimized")
+            } else if w.isAppHidden {
+                state.append("hidden")
+            }
+            if !w.isOnCurrentSpace { state.append("on another Space") }
+            let title = w.displayTitle + (state.isEmpty ? "" : " (\(state.joined(separator: ", ")))")
+            let item = add(title, #selector(windowChosen(_:)), to: menu)
+            item.state = w.isFocused ? .on : .off
+            // A short-lived menu, so holding the window here retains nothing for long.
+            item.representedObject = w
+        }
+        let rect = panel.convertToScreen(button.convert(button.bounds, to: nil))
+        let gap: CGFloat = 4
+        let top = layout.position == .bottom ? rect.maxY + gap + menu.size.height : rect.minY - gap
+        menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: top), in: nil)
+    }
+
+    @objc private func windowChosen(_ sender: NSMenuItem) {
+        guard let w = sender.representedObject as? TaskWindow else { return }
+        onActivate?(w)
+    }
+
+    /// Closes a single window; ignored on a group, where it would close several at once.
     fileprivate func middleClicked(_ button: TaskButton) {
+        guard !button.isGroup else { return }
         onAction?(button.task, .close)
     }
 
@@ -239,7 +299,7 @@ final class TaskbarBar: NSObject {
         // Updates skipped meanwhile, or a reorder the source can't apply, must not leave the
         // buttons out of step with the windows.
         signature = []
-        onReorder?(stack.arrangedSubviews.compactMap { ($0 as? TaskButton)?.task })
+        onReorder?(stack.arrangedSubviews.flatMap { ($0 as? TaskButton)?.tasks ?? [] })
     }
 
     /// Scrolling down (or right) focuses the next window, up the previous one, wrapping around.
@@ -259,7 +319,7 @@ final class TaskbarBar: NSObject {
         let forward = scrollAmount < 0
         scrollAmount = 0
 
-        let tasks = stack.arrangedSubviews.compactMap { ($0 as? TaskButton)?.task }
+        let tasks = stack.arrangedSubviews.flatMap { ($0 as? TaskButton)?.tasks ?? [] }
         guard !tasks.isEmpty else { return }
         let recent = cycled.flatMap { Date().timeIntervalSince($0.at) < Self.cycleMemory ? $0.key : nil }
         let current = tasks.firstIndex { $0.key == recent } ?? tasks.firstIndex(where: \.isFocused)
@@ -272,10 +332,18 @@ final class TaskbarBar: NSObject {
 
 extension TaskbarBar: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        guard let task = button(for: menu)?.task else { return }
+        guard let button = button(for: menu) else { return }
+        let task = button.task
         menu.removeAllItems()
         add("New Window", #selector(newWindowClicked(_:)), to: menu)
         menu.addItem(.separator())
+        if button.isGroup {
+            add("Close All Windows", #selector(closeAllClicked(_:)), to: menu)
+            menu.addItem(.separator())
+            add("Hide \(task.appName)", #selector(hideClicked(_:)), to: menu)
+            add("Quit \(task.appName)", #selector(quitClicked(_:)), to: menu)
+            return
+        }
         let others = NSScreen.screens.filter { $0.frame != screenFrame }
         if !others.isEmpty {
             let screens = NSMenu()
@@ -315,6 +383,9 @@ extension TaskbarBar: NSMenuDelegate {
 
     @objc private func newWindowClicked(_ sender: NSMenuItem) { perform(.newWindow, from: sender) }
     @objc private func closeClicked(_ sender: NSMenuItem) { perform(.close, from: sender) }
+    @objc private func closeAllClicked(_ sender: NSMenuItem) {
+        button(for: sender.menu)?.tasks.forEach { onAction?($0, .close) }
+    }
     @objc private func hideClicked(_ sender: NSMenuItem) { perform(.hideApp, from: sender) }
     @objc private func quitClicked(_ sender: NSMenuItem) { perform(.quitApp, from: sender) }
 
@@ -333,13 +404,18 @@ private final class BarView: NSView {
     }
 }
 
+/// A window's button, or with *Group windows by app* an app's button for all its windows on the bar.
 final class TaskButton: NSButton {
-    var task: TaskWindow {
-        didSet { configure(oldApp: oldValue.app) }
+    /// Never empty. More than one window only while grouping.
+    var tasks: [TaskWindow] {
+        didSet { configure(oldApp: oldValue[0].app) }
     }
+    /// The window the button stands for: the focused one of a group, else its first.
+    var task: TaskWindow { tasks.first(where: \.isFocused) ?? tasks[0] }
+    var isGroup: Bool { tasks.count > 1 }
     private(set) var widthConstraint: NSLayoutConstraint!
-    /// Minimized windows and windows of hidden apps are dimmed.
-    var targetAlpha: CGFloat { task.isVisible ? 1 : 0.5 }
+    /// Minimized windows and windows of hidden apps are dimmed; a group once none is visible.
+    var targetAlpha: CGFloat { tasks.contains(where: \.isVisible) ? 1 : 0.5 }
     var isHovered = false {
         didSet { if isHovered != oldValue { stateChanged() } }
     }
@@ -350,12 +426,22 @@ final class TaskButton: NSButton {
     var highContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
         didSet { needsDisplay = true }
     }
-    private let badge = BadgeView()
+    private let badge = BadgeView(fill: .systemRed, text: .white)
+    /// A group's window count, at the trailing edge.
+    private let count = BadgeView(fill: .labelColor.withAlphaComponent(0.15), text: .labelColor)
     /// How far the pointer must move sideways before a press becomes a drag.
     private static let dragThreshold: CGFloat = 4
+    /// Space between the count and the button's trailing edge, and between the count and the title.
+    private static let countInset: CGFloat = 6
 
-    init(task: TaskWindow, width: CGFloat, height: CGFloat) {
-        self.task = task
+    override class var cellClass: AnyClass? {
+        get { TaskButtonCell.self }
+        set {}
+    }
+
+    init(tasks: [TaskWindow], width: CGFloat, height: CGFloat) {
+        precondition(!tasks.isEmpty)
+        self.tasks = tasks
         super.init(frame: .zero)
 
         imagePosition = .imageLeading
@@ -368,11 +454,14 @@ final class TaskButton: NSButton {
         translatesAutoresizingMaskIntoConstraints = false
         widthConstraint = widthAnchor.constraint(equalToConstant: width)
         addSubview(badge)
+        addSubview(count)
         NSLayoutConstraint.activate([
             widthConstraint, heightAnchor.constraint(equalToConstant: height),
             // Over the top-right corner of the 18 pt icon.
             badge.centerXAnchor.constraint(equalTo: leadingAnchor, constant: 20),
             badge.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -7),
+            count.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.countInset),
+            count.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         addTrackingArea(
             NSTrackingArea(
@@ -384,26 +473,33 @@ final class TaskButton: NSButton {
         fatalError("init(coder:) is not supported")
     }
 
-    /// Applies `task` to the button; called again whenever the window's state changes.
+    /// Applies `tasks` to the button; called again whenever a window's state changes.
     private func configure(oldApp: NSRunningApplication?) {
-        title = " " + task.displayTitle
+        let name =
+            isGroup
+            ? "\(task.appName), \(tasks.count) windows"
+            : task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)"
+        let elsewhere = tasks.allSatisfy { !$0.isOnCurrentSpace }
+        title = " " + (isGroup ? task.appName : task.displayTitle)
         toolTip =
-            (task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)")
-            + (task.isOnCurrentSpace ? "" : " (on another Space)")
+            (isGroup ? "\(task.appName) — \(tasks.count) windows" : name) + (elsewhere ? " (on another Space)" : "")
         if oldApp != task.app, let icon = task.app.icon?.copy() as? NSImage {
             icon.size = NSSize(width: 18, height: 18)
             image = icon
         }
         badge.text = task.badge
+        count.text = isGroup ? "\(tasks.count)" : nil
+        // The title ends before the count instead of running under it.
+        (cell as? TaskButtonCell)?.trailingInset = isGroup ? count.fittingSize.width + 2 * Self.countInset : 0
         // VoiceOver reads this instead of the padded title, including what the tint conveys.
-        var label = [task.title.isEmpty ? task.appName : "\(task.appName) — \(task.title)"]
+        var label = [name]
         if task.isFocused { label.append("focused") }
-        if task.isMinimized {
+        if tasks.allSatisfy(\.isMinimized) {
             label.append("minimized")
         } else if task.isAppHidden {
             label.append("hidden")
         }
-        if !task.isOnCurrentSpace { label.append("on another Space") }
+        if elsewhere { label.append("on another Space") }
         if let badge = task.badge { label.append("badge \(badge)") }
         setAccessibilityLabel(label.joined(separator: ", "))
         needsDisplay = true
@@ -471,9 +567,21 @@ final class TaskButton: NSButton {
     }
 }
 
-/// The app's Dock badge (unread count and the like) as a red capsule.
+/// Leaves room at the trailing edge for a group's count.
+private final class TaskButtonCell: NSButtonCell {
+    var trailingInset: CGFloat = 0
+
+    override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+        var frame = frame
+        frame.size.width = max(0, min(frame.width, controlView.bounds.width - trailingInset - frame.minX))
+        return super.drawTitle(title, withFrame: frame, in: controlView)
+    }
+}
+
+/// A capsule with a short text: the app's Dock badge (unread count and the like) or a group's count.
 private final class BadgeView: NSView {
     private let label = NSTextField(labelWithString: "")
+    private let fill: NSColor
 
     var text: String? {
         didSet {
@@ -482,13 +590,14 @@ private final class BadgeView: NSView {
         }
     }
 
-    init() {
+    init(fill: NSColor, text: NSColor) {
+        self.fill = fill
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isHidden = true
 
         label.font = .systemFont(ofSize: 9, weight: .semibold)
-        label.textColor = .white
+        label.textColor = text
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -502,7 +611,7 @@ private final class BadgeView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.systemRed.setFill()
+        fill.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
     }
 

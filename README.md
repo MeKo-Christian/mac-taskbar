@@ -7,6 +7,8 @@ bottom of every screen with one button per open window.
 - Click the focused window to minimize it.
 - Middle-click a window to close it. Drag buttons to reorder them (until MacTaskbar quits).
 - Scroll over the bar to focus the next or previous window, wrapping around.
+- Settings → *Group windows by app*: an app with several windows on a bar gets one button with a
+  window count; click it to pick a window, right-click it for *Close All Windows*.
 - Right-click a window button → *New Window* (the app's ⌘N item), *Move to Screen* (with more
   than one display), *Close Window*, *Hide* / *Quit* the app; right-click the empty bar → *Quit*.
 - Buttons show the app's Dock badge (e.g. unread count), highlight on hover and press, and

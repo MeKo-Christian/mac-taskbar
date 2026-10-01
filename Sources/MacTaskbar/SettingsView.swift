@@ -86,6 +86,8 @@ struct SettingsView: View {
                 }
                 .accessibilityLabel("Windows from")
                 .disabled(!Spaces.isAvailable)
+                Toggle("Group windows by app", isOn: $settings.groupByApp)
+                    .accessibilityLabel("Group windows by app")
                 Toggle("Automatically hide and show the bar", isOn: $settings.autoHide)
                     .accessibilityLabel("Automatically hide and show the bar")
                 // A hidden bar covers nothing, so windows keep the whole screen.

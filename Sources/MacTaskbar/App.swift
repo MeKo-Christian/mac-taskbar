@@ -72,17 +72,20 @@ enum MacTaskbarApp {
                 title: title, frame: .zero, isMinimized: minimized, isFocused: focused, isAppHidden: false,
                 spaces: [], isOnCurrentSpace: true, badge: badge)
         }
-        let states: [(TaskWindow, (TaskButton) -> Void)] = [
-            (sample("Normal"), { _ in }),
-            (sample("Hover"), { $0.isHovered = true }),
-            (sample("Pressed"), { $0.isPressed = true }),
-            (sample("Focused", focused: true), { _ in }),
-            (sample("Focused, hover", focused: true), { $0.isHovered = true }),
-            (sample("Focused, pressed", focused: true), { $0.isPressed = true }),
-            (sample("Minimized", minimized: true), { _ in }),
-            (sample("Badge", badge: "3"), { _ in }),
-            (sample("Badge, long", badge: "120"), { _ in }),
-            (sample("Increase contrast"), { $0.highContrast = true }),
+        let states: [([TaskWindow], (TaskButton) -> Void)] = [
+            ([sample("Normal")], { _ in }),
+            ([sample("Hover")], { $0.isHovered = true }),
+            ([sample("Pressed")], { $0.isPressed = true }),
+            ([sample("Focused", focused: true)], { _ in }),
+            ([sample("Focused, hover", focused: true)], { $0.isHovered = true }),
+            ([sample("Focused, pressed", focused: true)], { $0.isPressed = true }),
+            ([sample("Minimized", minimized: true)], { _ in }),
+            ([sample("Badge", badge: "3")], { _ in }),
+            ([sample("Badge, long", badge: "120")], { _ in }),
+            ([sample("Increase contrast")], { $0.highContrast = true }),
+            ([sample("Group"), sample("Group")], { _ in }),
+            ([sample("Group"), sample("Group, focused", focused: true), sample("Group")], { _ in }),
+            ((1...12).map { _ in sample("Group, badge", badge: "3") }, { _ in }),
         ]
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let size = NSSize(width: 220, height: CGFloat(states.count) * 30 + 8)
@@ -95,8 +98,9 @@ enum MacTaskbarApp {
             content.borderWidth = 0
             content.fillColor = .windowBackgroundColor
             window.contentView = content
-            for (i, (task, apply)) in states.enumerated() {
-                let button = TaskButton(task: task, width: 200, height: 26)
+            for (i, (tasks, apply)) in states.enumerated() {
+                // The last sample is narrow, to check that a group's title ends before its count.
+                let button = TaskButton(tasks: tasks, width: i == states.count - 1 ? 90 : 200, height: 26)
                 button.alphaValue = button.targetAlpha
                 apply(button)
                 content.contentView?.addSubview(button)
