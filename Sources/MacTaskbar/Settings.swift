@@ -32,6 +32,8 @@ final class Settings: ObservableObject {
     @Published var autoHide: Bool { didSet { save(autoHide, Key.autoHide) } }
     /// One button per app for apps with several windows on a bar; a click lists the windows.
     @Published var groupByApp: Bool { didSet { save(groupByApp, Key.groupByApp) } }
+    /// Thumbnails of a button's windows while the pointer rests on it; needs Screen Recording.
+    @Published var showPreviews: Bool { didSet { save(showPreviews, Key.showPreviews) } }
 
     private enum Key {
         static let position = "barPosition"
@@ -43,6 +45,7 @@ final class Settings: ObservableObject {
         static let keepWindowsClear = "keepWindowsClear"
         static let autoHide = "autoHide"
         static let groupByApp = "groupByApp"
+        static let showPreviews = "showPreviews"
     }
 
     private let defaults: UserDefaults
@@ -58,6 +61,7 @@ final class Settings: ObservableObject {
         keepWindowsClear = defaults.object(forKey: Key.keepWindowsClear) as? Bool ?? true
         autoHide = defaults.bool(forKey: Key.autoHide)
         groupByApp = defaults.bool(forKey: Key.groupByApp)
+        showPreviews = defaults.bool(forKey: Key.showPreviews)
     }
 
     func isEnabled(_ screen: NSScreen) -> Bool {

@@ -100,8 +100,9 @@ final class AutoHide {
         for bar in bars where bar.isRevealed {
             let id = ObjectIdentifier(bar)
             let inside = bar.layout.frame.insetBy(dx: -Self.slack, dy: -Self.slack).contains(p)
-            // Also stay while a context menu is open or a button is being pressed.
-            if inside || menusOpen > 0 || NSEvent.pressedMouseButtons != 0 {
+            // Also stay while a context menu or the bar's window preview is open, or a button is
+            // being pressed.
+            if inside || menusOpen > 0 || bar.isPreviewing || NSEvent.pressedMouseButtons != 0 {
                 leftAt[id] = nil
             } else if let left = leftAt[id] {
                 if now.timeIntervalSince(left) >= Self.hideDelay {

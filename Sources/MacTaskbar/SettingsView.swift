@@ -88,6 +88,28 @@ struct SettingsView: View {
                 .disabled(!Spaces.isAvailable)
                 Toggle("Group windows by app", isOn: $settings.groupByApp)
                     .accessibilityLabel("Group windows by app")
+                Toggle(
+                    "Show window previews on hover",
+                    isOn: Binding(
+                        get: { settings.showPreviews },
+                        set: {
+                            settings.showPreviews = $0
+                            if $0 && !WindowPreview.isAllowed { CGRequestScreenCaptureAccess() }
+                        })
+                )
+                .accessibilityLabel("Show window previews on hover")
+                if settings.showPreviews && !WindowPreview.isAllowed {
+                    HStack {
+                        Text("Allow MacTaskbar in Screen Recording, then reopen it.").foregroundStyle(.secondary)
+                        Button("Open Screen Recording…") {
+                            NSWorkspace.shared.open(
+                                URL(
+                                    string:
+                                        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+                            )
+                        }
+                    }
+                }
                 Toggle("Automatically hide and show the bar", isOn: $settings.autoHide)
                     .accessibilityLabel("Automatically hide and show the bar")
                 // A hidden bar covers nothing, so windows keep the whole screen.

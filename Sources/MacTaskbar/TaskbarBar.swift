@@ -16,6 +16,7 @@ final class TaskbarBar: NSObject {
         /// Hidden until the pointer rests at the bar's edge (see `AutoHide`).
         let autoHide: Bool
         let groupByApp: Bool
+        let showPreviews: Bool
 
         @MainActor init(screen: NSScreen, settings: Settings) {
             screenFrame = screen.frame
@@ -23,6 +24,7 @@ final class TaskbarBar: NSObject {
             position = settings.position
             autoHide = settings.autoHide
             groupByApp = settings.groupByApp
+            showPreviews = settings.showPreviews
             let height = settings.barHeight
             // At the top, sit below the menu bar (the top of the visible frame).
             let y = settings.position == .top ? screen.visibleFrame.maxY - height : screen.frame.minY
@@ -65,13 +67,19 @@ final class TaskbarBar: NSObject {
     var onReorder: (([TaskWindow]) -> Void)?
     /// False while auto-hide keeps the bar out of sight.
     private(set) var isRevealed = true
+    /// Window thumbnails on hover; nil unless the setting is on and Screen Recording is allowed.
+    private let preview: WindowPreview?
+    /// A preview is open; auto-hide keeps the bar meanwhile.
+    var isPreviewing: Bool { preview?.isShown ?? false }
 
     init(layout: Layout) {
         self.layout = layout
         panel = NSPanel(
             contentRect: layout.frame, styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
+        preview = layout.showPreviews && WindowPreview.isAllowed ? WindowPreview(position: layout.position) : nil
         super.init()
+        preview?.onActivate = { [weak self] w in self?.onActivate?(w) }
 
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
@@ -122,6 +130,7 @@ final class TaskbarBar: NSObject {
     }
 
     func close() {
+        preview?.hide()
         panel.orderOut(nil)
     }
 
@@ -130,6 +139,7 @@ final class TaskbarBar: NSObject {
     func setRevealed(_ revealed: Bool, animated: Bool = true) {
         guard revealed != isRevealed else { return }
         isRevealed = revealed
+        if !revealed { preview?.hide() }
         panel.ignoresMouseEvents = !revealed
         // Past the outer edge: below a bottom bar, above a top one.
         let outside = NSPoint(x: 0, y: layout.position == .bottom ? -layout.frame.height : layout.frame.height)
@@ -198,6 +208,7 @@ final class TaskbarBar: NSObject {
             }
             panel.contentView?.layoutSubtreeIfNeeded()
         }
+        preview?.buttonsChanged()
         Log.app.debug(
             "Bar update at x=\(Int(self.screenFrame.minX)): +\(added.count) −\(gone.count) =\(kept.count)\(reordered ? " reordered" : "", privacy: .public)"
         )
@@ -223,7 +234,8 @@ final class TaskbarBar: NSObject {
     }
 
     private func makeButton(_ tasks: [TaskWindow]) -> TaskButton {
-        let button = TaskButton(tasks: tasks, width: maxButtonWidth, height: buttonHeight)
+        // The preview shows the titles; a tooltip would cover it.
+        let button = TaskButton(tasks: tasks, width: maxButtonWidth, height: buttonHeight, toolTips: preview == nil)
         button.target = self
         button.action = #selector(buttonClicked(_:))
         // Filled when it opens (`menuNeedsUpdate`), so app names and screens are current.
@@ -239,6 +251,7 @@ final class TaskbarBar: NSObject {
         buttons = [:]
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         stack.addArrangedSubview(NSTextField(labelWithString: text))
+        preview?.hide()
     }
 
     @objc private func buttonClicked(_ sender: TaskButton) {
@@ -277,6 +290,11 @@ final class TaskbarBar: NSObject {
         onActivate?(w)
     }
 
+    fileprivate func pointerEntered(_ button: TaskButton) { preview?.pointerEntered(button) }
+    fileprivate func pointerExited(_ button: TaskButton) { preview?.pointerExited(button) }
+    /// A press on a button (click or drag) closes its preview, as its context menu does.
+    fileprivate func pressed() { preview?.hide() }
+
     /// Closes a single window; ignored on a group, where it would close several at once.
     fileprivate func middleClicked(_ button: TaskButton) {
         guard !button.isGroup else { return }
@@ -305,6 +323,7 @@ final class TaskbarBar: NSObject {
     /// Scrolling down (or right) focuses the next window, up the previous one, wrapping around.
     private func scroll(_ event: NSEvent) {
         guard event.momentumPhase.isEmpty else { return }
+        preview?.hide()
         if event.phase == .began { scrollAmount = 0 }
         let delta =
             abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? -event.scrollingDeltaX : event.scrollingDeltaY
@@ -333,6 +352,7 @@ final class TaskbarBar: NSObject {
 extension TaskbarBar: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard let button = button(for: menu) else { return }
+        preview?.hide()
         let task = button.task
         menu.removeAllItems()
         add("New Window", #selector(newWindowClicked(_:)), to: menu)
@@ -426,6 +446,8 @@ final class TaskButton: NSButton {
     var highContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast {
         didSet { needsDisplay = true }
     }
+    /// False when hover previews show the windows instead.
+    private let showsToolTip: Bool
     private let badge = BadgeView(fill: .systemRed, text: .white)
     /// A group's window count, at the trailing edge.
     private let count = BadgeView(fill: .labelColor.withAlphaComponent(0.15), text: .labelColor)
@@ -439,9 +461,10 @@ final class TaskButton: NSButton {
         set {}
     }
 
-    init(tasks: [TaskWindow], width: CGFloat, height: CGFloat) {
+    init(tasks: [TaskWindow], width: CGFloat, height: CGFloat, toolTips: Bool = true) {
         precondition(!tasks.isEmpty)
         self.tasks = tasks
+        showsToolTip = toolTips
         super.init(frame: .zero)
 
         imagePosition = .imageLeading
@@ -482,7 +505,9 @@ final class TaskButton: NSButton {
         let elsewhere = tasks.allSatisfy { !$0.isOnCurrentSpace }
         title = " " + (isGroup ? task.appName : task.displayTitle)
         toolTip =
-            (isGroup ? "\(task.appName) — \(tasks.count) windows" : name) + (elsewhere ? " (on another Space)" : "")
+            showsToolTip
+            ? (isGroup ? "\(task.appName) — \(tasks.count) windows" : name) + (elsewhere ? " (on another Space)" : "")
+            : nil
         if oldApp != task.app, let icon = task.app.icon?.copy() as? NSImage {
             icon.size = NSSize(width: 18, height: 18)
             image = icon
@@ -505,8 +530,15 @@ final class TaskButton: NSButton {
         needsDisplay = true
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        (target as? TaskbarBar)?.pointerEntered(self)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        (target as? TaskbarBar)?.pointerExited(self)
+    }
 
     /// Tracks the press itself instead of NSButton's tracking loop: a press that moves sideways
     /// becomes a drag along the bar, a release on the button a click.
@@ -514,6 +546,7 @@ final class TaskButton: NSButton {
         guard let window else { return }
         let start = event.locationInWindow
         isPressed = true
+        (target as? TaskbarBar)?.pressed()
         while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
             let inside = bounds.contains(convert(next.locationInWindow, from: nil))
             if next.type == .leftMouseUp {

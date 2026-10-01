@@ -9,6 +9,9 @@ bottom of every screen with one button per open window.
 - Scroll over the bar to focus the next or previous window, wrapping around.
 - Settings → *Group windows by app*: an app with several windows on a bar gets one button with a
   window count; click it to pick a window, right-click it for *Close All Windows*.
+- Settings → *Show window previews on hover*: resting the pointer on a button shows thumbnails of
+  its windows (all of a group's), minimized and hidden ones included; click one to focus it. Needs
+  the Screen Recording permission; windows are only captured while a preview opens.
 - Right-click a window button → *New Window* (the app's ⌘N item), *Move to Screen* (with more
   than one display), *Close Window*, *Hide* / *Quit* the app; right-click the empty bar → *Quit*.
 - Buttons show the app's Dock badge (e.g. unread count), highlight on hover and press, and
@@ -67,7 +70,8 @@ build, and macOS silently stops applying the old grant.
   the bar; the bar corrects them afterwards through the Accessibility API. Apps that resist a new
   frame are adjusted at most 3 times in 10 s, then left alone.
 - With auto-hide, a bottom bar shares the screen edge with an auto-hidden Dock at the bottom, so
-  both come up together; an edge shared with another display is crossed rather than rested on.
+  both come up together and the Dock covers the bar where they overlap; an edge shared with
+  another display is crossed rather than rested on.
 - Tabs are not listed separately: Safari, Finder, Terminal and browser tabs share one
   window, so they get one button.
 - Floating panels (e.g. Fonts, Inspector), sheets and dialogs such as About boxes are not listed.
