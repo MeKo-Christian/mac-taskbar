@@ -27,6 +27,12 @@ final class TaskbarBar: NSObject {
         }
     }
 
+    /// What a button's context menu or middle click asks for.
+    enum Action {
+        case close, newWindow, hideApp, quitApp
+        case moveTo(NSScreen)
+    }
+
     let layout: Layout
     var screenFrame: CGRect { layout.screenFrame }
     private var maxButtonWidth: CGFloat { layout.maxButtonWidth }
@@ -37,9 +43,23 @@ final class TaskbarBar: NSObject {
     private var signature: [String] = []
     /// The button of each shown window, by `WindowKey.id`.
     private var buttons: [String: TaskButton] = [:]
+    /// While a button is dragged, updates wait: they would put it back mid-drag.
+    private var isDragging = false
+    /// Trackpad scrolling arrives in small steps; they add up to one window per `scrollStep`.
+    private var scrollAmount: CGFloat = 0
+    /// The window the last scroll focused. Focus changes land asynchronously, so quick scrolls
+    /// continue from here rather than from the snapshot's focused window.
+    private var cycled: (key: WindowKey, at: Date)?
+    private static let scrollStep: CGFloat = 30
+    private static let cycleMemory: TimeInterval = 1
 
+    /// A plain click on a button.
     var onClick: ((TaskWindow) -> Void)?
-    var onClose: ((TaskWindow) -> Void)?
+    var onAction: ((TaskWindow, Action) -> Void)?
+    /// Scrolling over the bar focuses the next or previous window.
+    var onActivate: ((TaskWindow) -> Void)?
+    /// A button was dragged elsewhere: the bar's windows in their new order.
+    var onReorder: (([TaskWindow]) -> Void)?
     /// False while auto-hide keeps the bar out of sight.
     private(set) var isRevealed = true
 
@@ -62,11 +82,13 @@ final class TaskbarBar: NSObject {
         background.state = .active
         // In a container, so hiding can slide it out of the panel, which clips it; sliding the panel
         // itself would show it on a screen next to that edge.
-        let container = NSView(frame: CGRect(origin: .zero, size: layout.frame.size))
+        let container = BarView(frame: CGRect(origin: .zero, size: layout.frame.size))
         background.frame = container.bounds
         background.autoresizingMask = [.width, .height]
         container.addSubview(background)
         panel.contentView = container
+        // Scroll events over a button or the background reach the container up the responder chain.
+        container.onScroll = { [weak self] event in self?.scroll(event) }
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Quit MacTaskbar", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
@@ -123,7 +145,7 @@ final class TaskbarBar: NSObject {
         let sig = windows.map {
             "\($0.key.id)|\($0.displayTitle)|\($0.isVisible)|\($0.isFocused)|\($0.isOnCurrentSpace)|\($0.badge ?? "")"
         }
-        guard sig != signature else { return }
+        guard sig != signature, !isDragging else { return }
         if signature == ["message"] { stack.arrangedSubviews.forEach { $0.removeFromSuperview() } }
         signature = sig
 
@@ -178,10 +200,9 @@ final class TaskbarBar: NSObject {
         let button = TaskButton(task: w, width: maxButtonWidth, height: buttonHeight)
         button.target = self
         button.action = #selector(buttonClicked(_:))
-
+        // Filled when it opens (`menuNeedsUpdate`), so app names and screens are current.
         let menu = NSMenu()
-        let item = menu.addItem(withTitle: "Close Window", action: #selector(closeClicked(_:)), keyEquivalent: "")
-        item.target = self
+        menu.delegate = self
         button.menu = menu
         return button
     }
@@ -198,10 +219,117 @@ final class TaskbarBar: NSObject {
         onClick?(sender.task)
     }
 
-    @objc private func closeClicked(_ sender: NSMenuItem) {
-        // Found via the menu: a `representedObject` pointing back at the button would retain it.
-        guard let button = buttons.values.first(where: { $0.menu === sender.menu }) else { return }
-        onClose?(button.task)
+    fileprivate func middleClicked(_ button: TaskButton) {
+        onAction?(button.task, .close)
+    }
+
+    /// Moves `button` along the bar while the pointer is dragged; reports the new order on release.
+    fileprivate func drag(_ button: TaskButton) {
+        isDragging = true
+        defer { isDragging = false }
+        while let event = panel.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            let x = stack.convert(event.locationInWindow, from: nil).x
+            let index = stack.arrangedSubviews.filter { $0 !== button && $0.frame.midX < x }.count
+            if stack.arrangedSubviews.firstIndex(of: button) != index {
+                stack.insertArrangedSubview(button, at: index)
+                stack.layoutSubtreeIfNeeded()
+            }
+            if event.type == .leftMouseUp { break }
+        }
+        // Updates skipped meanwhile, or a reorder the source can't apply, must not leave the
+        // buttons out of step with the windows.
+        signature = []
+        onReorder?(stack.arrangedSubviews.compactMap { ($0 as? TaskButton)?.task })
+    }
+
+    /// Scrolling down (or right) focuses the next window, up the previous one, wrapping around.
+    private func scroll(_ event: NSEvent) {
+        guard event.momentumPhase.isEmpty else { return }
+        if event.phase == .began { scrollAmount = 0 }
+        let delta =
+            abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? -event.scrollingDeltaX : event.scrollingDeltaY
+        if event.hasPreciseScrollingDeltas {
+            scrollAmount += delta
+            guard abs(scrollAmount) >= Self.scrollStep else { return }
+        } else {
+            // A mouse wheel: one notch, one window.
+            guard delta != 0 else { return }
+            scrollAmount = delta
+        }
+        let forward = scrollAmount < 0
+        scrollAmount = 0
+
+        let tasks = stack.arrangedSubviews.compactMap { ($0 as? TaskButton)?.task }
+        guard !tasks.isEmpty else { return }
+        let recent = cycled.flatMap { Date().timeIntervalSince($0.at) < Self.cycleMemory ? $0.key : nil }
+        let current = tasks.firstIndex { $0.key == recent } ?? tasks.firstIndex(where: \.isFocused)
+        let next =
+            current.map { (forward ? $0 + 1 : $0 - 1 + tasks.count) % tasks.count } ?? (forward ? 0 : tasks.count - 1)
+        cycled = (tasks[next].key, Date())
+        onActivate?(tasks[next])
+    }
+}
+
+extension TaskbarBar: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let task = button(for: menu)?.task else { return }
+        menu.removeAllItems()
+        add("New Window", #selector(newWindowClicked(_:)), to: menu)
+        menu.addItem(.separator())
+        let others = NSScreen.screens.filter { $0.frame != screenFrame }
+        if !others.isEmpty {
+            let screens = NSMenu()
+            for screen in others {
+                add(screen.localizedName, #selector(moveClicked(_:)), to: screens).representedObject = screen
+            }
+            menu.addItem(withTitle: "Move to Screen", action: nil, keyEquivalent: "").submenu = screens
+        }
+        add("Close Window", #selector(closeClicked(_:)), to: menu)
+        menu.addItem(.separator())
+        add("Hide \(task.appName)", #selector(hideClicked(_:)), to: menu)
+        add("Quit \(task.appName)", #selector(quitClicked(_:)), to: menu)
+    }
+
+    @discardableResult
+    private func add(_ title: String, _ action: Selector, to menu: NSMenu) -> NSMenuItem {
+        let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+        item.target = self
+        return item
+    }
+
+    /// The button whose menu (or submenu) this is. Found via the menu: a `representedObject`
+    /// pointing back at the button would retain it.
+    private func button(for menu: NSMenu?) -> TaskButton? {
+        var menu = menu
+        while let m = menu {
+            if let button = buttons.values.first(where: { $0.menu === m }) { return button }
+            menu = m.supermenu
+        }
+        return nil
+    }
+
+    private func perform(_ action: Action, from item: NSMenuItem) {
+        guard let task = button(for: item.menu)?.task else { return }
+        onAction?(task, action)
+    }
+
+    @objc private func newWindowClicked(_ sender: NSMenuItem) { perform(.newWindow, from: sender) }
+    @objc private func closeClicked(_ sender: NSMenuItem) { perform(.close, from: sender) }
+    @objc private func hideClicked(_ sender: NSMenuItem) { perform(.hideApp, from: sender) }
+    @objc private func quitClicked(_ sender: NSMenuItem) { perform(.quitApp, from: sender) }
+
+    @objc private func moveClicked(_ sender: NSMenuItem) {
+        guard let screen = sender.representedObject as? NSScreen else { return }
+        perform(.moveTo(screen), from: sender)
+    }
+}
+
+/// The bar's content view; scroll events over the bar end up here.
+private final class BarView: NSView {
+    var onScroll: ((NSEvent) -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        onScroll?(event)
     }
 }
 
@@ -223,11 +351,8 @@ final class TaskButton: NSButton {
         didSet { needsDisplay = true }
     }
     private let badge = BadgeView()
-
-    override class var cellClass: AnyClass? {
-        get { TaskButtonCell.self }
-        set {}
-    }
+    /// How far the pointer must move sideways before a press becomes a drag.
+    private static let dragThreshold: CGFloat = 4
 
     init(task: TaskWindow, width: CGFloat, height: CGFloat) {
         self.task = task
@@ -287,6 +412,40 @@ final class TaskButton: NSButton {
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
 
+    /// Tracks the press itself instead of NSButton's tracking loop: a press that moves sideways
+    /// becomes a drag along the bar, a release on the button a click.
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        let start = event.locationInWindow
+        isPressed = true
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            let inside = bounds.contains(convert(next.locationInWindow, from: nil))
+            if next.type == .leftMouseUp {
+                isPressed = false
+                if inside { sendAction(action, to: target) }
+                return
+            }
+            if abs(next.locationInWindow.x - start.x) > Self.dragThreshold {
+                isPressed = false
+                (target as? TaskbarBar)?.drag(self)
+                return
+            }
+            isPressed = inside
+        }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        if event.buttonNumber != 2 { super.otherMouseDown(with: event) }
+    }
+
+    /// Middle click closes the window, as in browsers' tab bars.
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2, bounds.contains(convert(event.locationInWindow, from: nil)) else {
+            return super.otherMouseUp(with: event)
+        }
+        (target as? TaskbarBar)?.middleClicked(self)
+    }
+
     private func stateChanged() {
         Log.events.debug(
             "Button \(self.task.key.id, privacy: .public): hover \(self.isHovered), pressed \(self.isPressed)")
@@ -309,14 +468,6 @@ final class TaskButton: NSButton {
             shape.stroke()
         }
         super.draw(dirtyRect)
-    }
-}
-
-/// Reports press and release (also when the pointer is dragged off and back on) to its button.
-private final class TaskButtonCell: NSButtonCell {
-    override func highlight(_ flag: Bool, withFrame cellFrame: NSRect, in controlView: NSView) {
-        super.highlight(flag, withFrame: cellFrame, in: controlView)
-        (controlView as? TaskButton)?.isPressed = flag
     }
 }
 

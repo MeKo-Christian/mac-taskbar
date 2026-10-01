@@ -389,6 +389,48 @@ final class WindowSource: @unchecked Sendable {
         }
     }
 
+    /// Puts `keys` (one bar's windows) in this order. They swap their places in the overall order
+    /// among themselves, so windows shown on other bars keep theirs. Lasts until the app quits:
+    /// window IDs don't survive an app restart anyway.
+    func reorder(_ keys: [WindowKey], completion: @escaping @MainActor () -> Void) {
+        perform(completion) { [self] in
+            let slots = keys.compactMap { order[$0] }.sorted()
+            guard slots.count == keys.count else { return }
+            for (key, slot) in zip(keys, slots) { order[key] = slot }
+        }
+    }
+
+    /// Presses the app's ⌘N menu item (New Window, New Document, …) and brings the app forward.
+    /// Delivers false when the app has none.
+    func newWindow(_ app: NSRunningApplication, completion: @escaping @MainActor (Bool) -> Void) {
+        queue.async {
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            let item = copyAttribute(appElement, kAXMenuBarAttribute).flatMap { Self.commandN(in: $0, depth: 0) }
+            if let item {
+                AXUIElementPerformAction(item, kAXPressAction as CFString)
+                AXUIElementSetAttributeValue(appElement, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            }
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(item != nil) } }
+        }
+    }
+
+    /// Menu bar → menu bar item → menu → item, plus submenus (Terminal's Shell → New Window → profile).
+    private static func commandN(in element: AXUIElement, depth: Int) -> AXUIElement? {
+        guard depth < 6 else { return nil }
+        for child: AXUIElement in copyAttribute(element, kAXChildrenAttribute) ?? [] {
+            let role: String? = copyAttribute(child, kAXRoleAttribute)
+            if role == kAXMenuItemRole,
+                copyAttribute(child, kAXMenuItemCmdCharAttribute) as String? == "N",
+                copyAttribute(child, kAXMenuItemCmdModifiersAttribute) as Int? == 0,  // ⌘ alone
+                copyAttribute(child, kAXEnabledAttribute) as Bool? == true
+            {
+                return child
+            }
+            if let found = commandN(in: child, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+
     /// Resizes and moves a window to `frame` (Cocoa coordinates). Apps may refuse a size smaller
     /// than their minimum; the window is then raised so its bottom still lands on `frame.minY`, but
     /// its top never goes above `topLimit`. Full-screen windows are left alone (result nil).

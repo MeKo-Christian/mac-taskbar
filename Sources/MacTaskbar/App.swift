@@ -227,8 +227,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bars = layouts.map { layout in
             let bar = TaskbarBar(layout: layout)
             bar.onClick = { [weak self] w in self?.clicked(w) }
-            bar.onClose = { [weak self] w in
-                self?.source.close(w) { self?.refreshSoon() }
+            bar.onAction = { [weak self] w, action in self?.perform(action, on: w) }
+            bar.onActivate = { [weak self] w in
+                self?.source.focus(w) { self?.refreshSoon() }
+            }
+            bar.onReorder = { [weak self] windows in
+                Log.app.info("Reordered: \(windows.map(\.key.id).joined(separator: " "), privacy: .public)")
+                self?.source.reorder(windows.map(\.key)) { self?.refresh() }
             }
             return bar
         }
@@ -321,6 +326,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             source.minimize(w) { [weak self] in self?.refreshSoon() }
         } else {
             source.focus(w) { [weak self] in self?.refreshSoon() }
+        }
+    }
+
+    private func perform(_ action: TaskbarBar.Action, on w: TaskWindow) {
+        switch action {
+        case .close:
+            source.close(w) { [weak self] in self?.refreshSoon() }
+        case .newWindow:
+            source.newWindow(w.app) { [weak self] found in
+                if !found {
+                    Log.app.info("New Window: \(w.appName, privacy: .public) has no ⌘N menu item")
+                    NSSound.beep()
+                }
+                self?.refreshSoon()
+            }
+        // Both are announced by workspace notifications, which refresh.
+        case .hideApp:
+            w.app.hide()
+        case .quitApp:
+            w.app.terminate()
+        case .moveTo(let screen):
+            move(w, to: screen)
+        }
+    }
+
+    /// Moves a window to the same relative place on another screen's visible frame, shrunk to fit.
+    private func move(_ w: TaskWindow, to screen: NSScreen) {
+        let center = CGPoint(x: w.frame.midX, y: w.frame.midY)
+        let from = (NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.screens.first)?.visibleFrame
+        guard let from else { return }
+        let to = screen.visibleFrame
+        let size = CGSize(width: min(w.frame.width, to.width), height: min(w.frame.height, to.height))
+        // 0 … 1 across the room the window has to move in, per axis.
+        func place(_ offset: CGFloat, _ room: CGFloat) -> CGFloat { room > 0 ? min(max(offset / room, 0), 1) : 0 }
+        let x = place(w.frame.minX - from.minX, from.width - w.frame.width)
+        let y = place(w.frame.minY - from.minY, from.height - w.frame.height)
+        let target = CGRect(
+            x: to.minX + x * (to.width - size.width), y: to.minY + y * (to.height - size.height),
+            width: size.width, height: size.height)
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        source.setFrame(w, to: target, topLimit: to.maxY, primaryHeight: primaryHeight) { [weak self] result in
+            Log.app.info(
+                "Moved [\(w.appName, privacy: .public)] id=\(w.key.id, privacy: .public) to \(screen.localizedName, privacy: .public): \(String(describing: result), privacy: .public)"
+            )
+            self?.refreshSoon()
         }
     }
 

@@ -5,7 +5,10 @@ bottom of every screen with one button per open window.
 
 - Click a window to focus it (also restores minimized windows and unhides hidden apps).
 - Click the focused window to minimize it.
-- Right-click a window button → *Close Window*; right-click the empty bar → *Quit*.
+- Middle-click a window to close it. Drag buttons to reorder them (until MacTaskbar quits).
+- Scroll over the bar to focus the next or previous window, wrapping around.
+- Right-click a window button → *New Window* (the app's ⌘N item), *Move to Screen* (with more
+  than one display), *Close Window*, *Hide* / *Quit* the app; right-click the empty bar → *Quit*.
 - Buttons show the app's Dock badge (e.g. unread count), highlight on hover and press, and
   follow light/dark mode and *Increase contrast*.
 - Each screen lists the windows whose center lies on that screen.
