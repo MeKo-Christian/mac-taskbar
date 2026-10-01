@@ -67,6 +67,9 @@ every entry states something that holds today, found while building and verifyin
 - `NSMenuItem.representedObject` retains its object; pointing it at a button leaked buttons.
 - Layer colours are resolved once at creation. Draw tints in `draw(_:)` so they follow light/dark
   and contrast changes.
+- An `NSImageView` inside a custom view that is the accessibility element (a preview cell) still
+  answers `AXUIElementCopyElementAtPosition` as an `AXImage`, though it is marked as no element.
+  Overriding the cell's `hitTest` to return itself makes the cell the hit.
 - Dock badges are the `AXStatusLabel` of the app's Dock item. Attention (bouncing) has no public
   or AX signal.
 - A SwiftUI `Toggle`/`Picker` in the Settings window has no AX title of its own (the label is a
@@ -94,6 +97,15 @@ every entry states something that holds today, found while building and verifyin
   refresh). Never re-adjust a frame an adjustment produced, and cap adjustments per window
   (3 in 10 s).
 
+## Window previews
+
+- ScreenCaptureKit (`SCScreenshotManager.captureImage` with `SCContentFilter(desktopIndependentWindow:)`)
+  captures minimized windows (their last content) and windows of hidden apps, not only visible ones.
+- `CGRequestScreenCaptureAccess()` shows the system prompt; hovering without the grant must stay a
+  no-op (check `CGPreflightScreenCaptureAccess()` before touching ScreenCaptureKit).
+- A press, scroll or context menu closes the preview; it comes back only when the pointer re-enters
+  a button, since a pointer resting on the button sends no new `mouseEntered`.
+
 ## Auto-hide
 
 - Global event monitors only see events delivered to other apps. A hidden bar sets
@@ -106,6 +118,8 @@ every entry states something that holds today, found while building and verifyin
   whereas a panel moved past the screen edge shows up on a display adjoining that edge.
 - `NSMenu.didBeginTracking`/`didEndTracking` tell when a bar's context menu is open; the pointer
   is outside the bar then, but the bar must stay.
+- An auto-hidden Dock at the bottom comes up with a bottom bar and, being above it, takes the
+  hover and clicks where they overlap: test hover on a revealed bar outside the Dock's span.
 
 ## The Dock
 
