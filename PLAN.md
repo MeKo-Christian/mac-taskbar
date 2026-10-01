@@ -42,7 +42,8 @@ macOS behaviour live in [docs/INSIGHTS.md](docs/INSIGHTS.md).
   - [x] Keep-out: windows reaching into the bar are shrunk (or moved) via AX to end at its edge
         (`KeepOut`, setting *Keep windows clear of the bar*).
   - [ ] Keep-out on a second display.
-  - [ ] Keep-out with Terminal-style size increments (Terminal, iTerm).
+  - [ ] Keep-out with Terminal-style size increments (Terminal, iTerm). (2026-10-01) — partial:
+        Terminal fixed (overshooting heights are retried smaller until they fit); iTerm not installed.
   - [ ] Keep-out after drag-to-tile with a real mouse.
   - [x] Optional auto-hide of the bar (`AutoHide`, keep-out pauses while it is on).
   - [x] Onboarding hint: set the Dock to auto-hide (`DockHintWindow`).
@@ -52,10 +53,11 @@ macOS behaviour live in [docs/INSIGHTS.md](docs/INSIGHTS.md).
   - [ ] Attention (bouncing): no public signal found yet.
   - [ ] Verify *Reduce transparency* and *Increase contrast* live.
 - [ ] **Interactions.**
-  - [ ] Middle-click to close.
-  - [ ] Drag to reorder.
-  - [ ] Scroll to cycle windows.
-  - [ ] Context menu: New Window, Hide, Quit App, Move to Screen.
+  - [x] Middle-click to close.
+  - [x] Drag to reorder (kept until MacTaskbar quits).
+  - [x] Scroll to cycle windows (the bar's windows, wrapping; trackpad deltas add up).
+  - [ ] Context menu: New Window, Hide, Quit App, Move to Screen. (2026-10-01) — partial: all built;
+        New Window (the app's ⌘N item), Hide and Quit verified, Move to Screen needs a second display.
 - [ ] **Grouping.** Optional "group by app" with a window count and a popup list.
 - [ ] **Hover previews** via ScreenCaptureKit (requires Screen Recording permission — keep optional).
 - [ ] **Pinned launchers** (optional), so the Dock can be hidden completely.
