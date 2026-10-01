@@ -85,7 +85,11 @@ every entry states something that holds today, found while building and verifyin
   - Firefox applies a size asynchronously and drops a move that directly follows a resize. Set
     move → resize → move, and move again 100 ms later if only the size took.
   - Fixed-size apps (Calculator) keep their height; move them up instead.
-  - Skip `AXFullScreen` windows and windows as large as the screen (games, presentations).
+  - Terminal sizes windows in whole rows (15 pt) and rounds a requested height to the nearest
+    one, often up. Below the menu bar the window can't move up, so ask for smaller heights until
+    one fits. Only retry when the height changed at all: fixed-size and late apps report the old one.
+  - Skip `AXFullScreen` windows and windows as large as the screen (games, presentations). On a
+    display with a notch, full-screen windows start below it (y = 33) and are not screen-sized.
 - A rule-based adjuster loops when an app only partly accepts a frame (Firefox shrank 12 pt per
   refresh). Never re-adjust a frame an adjustment produced, and cap adjustments per window
   (3 in 10 s).
@@ -130,5 +134,9 @@ every entry states something that holds today, found while building and verifyin
   visible frame, and keep-out shrinks them for a top bar. Note their frames with `just dump` first
   and restore them by `CGWindowID` (`_AXUIElementGetWindow`), not by size, which is ambiguous.
 - zsh has a `log` builtin; use `/usr/bin/log show` / `/usr/bin/log stream`.
+- Pressing a window's `AXZoomButton` enters full screen, like clicking the green button; for a
+  zoom, press *Window ▸ Zoom* in the app's menu bar (`kAXMenuBarAttribute`).
+- An open context menu of the bar is in MacTaskbar's AX tree (`AXMenuItem`s under the app
+  element), so its items can be pressed by title after a scripted right-click.
 - Not scriptable: adding a desktop via Mission Control, writing `com.apple.universalaccess`
   (Reduce transparency, Increase contrast), display sleep/wake, clamshell, replugging displays.
